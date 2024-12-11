@@ -13,9 +13,9 @@ license = "MIT OR Apache-2.0"
 keywords = [
 	"function-fitting",
 	"nonlinear-regression",
-	"optimumization-problem",
+	"optimization-problem",
 	"covariance-matrix",
-	"uncertainty-propagation",
+	"error-propagation",
 ]
 categories = [
 	"api-bindings",
