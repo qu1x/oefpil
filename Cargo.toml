@@ -1,0 +1,77 @@
+[package]
+name = "oefpil"
+version = "0.1.0"
+rust-version = "1.82.0"
+edition = "2021"
+description = """Optimum Estimate of Function Parameters by Iterated Linearization (OEFPIL):
+Algorithm for nonlinear function fitting to data with errors in both dependent and independent
+variables where correlation, both within variables and among variables, might be present."""
+documentation = "https://docs.rs/oefpil"
+repository = "https://github.com/qu1x/oefpil"
+authors = ["Rouven Spreckels <rs@qu1x.dev>"]
+license = "MIT OR Apache-2.0"
+keywords = [
+	"function-fitting",
+	"nonlinear-regression",
+	"optimumization-problem",
+	"covariance-matrix",
+	"uncertainty-propagation",
+]
+categories = [
+	"api-bindings",
+	"algorithms",
+	"mathematics",
+	"science",
+]
+include = [
+	"src/**/*.rs",
+	"katex.html",
+	"Cargo.toml",
+	"README.md",
+	"RELEASES.md",
+	"LICENSE-*",
+]
+
+[package.metadata.docs.rs]
+features = ["random"]
+cargo-args = ["-Z", "unstable-options", "-Z", "rustdoc-scrape-examples"]
+rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex.html"]
+
+[workspace]
+members = ["oefpil-sys"]
+
+[dependencies]
+oefpil-sys = { version = "0.1.0", path = "oefpil-sys" }
+derive_more = { version = "1.0.0", features = ["display", "error", "from"] }
+rand = { version = "0.8.5", default-features = false, optional = true }
+rand_distr = { version = "0.4.3", default-features = false, optional = true }
+
+[dev-dependencies]
+rand_chacha = "0.3.1"
+const-hex = "1.13.1"
+
+[lints.rust]
+missing-docs = "forbid"
+unsafe-op-in-unsafe-fn = "forbid"
+
+[lints.rustdoc]
+broken-intra-doc-links = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+opt-level = 3
+
+[features]
+random = ["rand", "rand_distr"]
+
+[[example]]
+name = "sine"
+required-features = ["random"]
+doc-scrape-examples = true

@@ -1,0 +1,97 @@
+name: build
+on:
+  merge_group:
+  pull_request:
+  push:
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  default:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: msrv
+      run: |
+        msrv=$(cargo metadata --no-deps --format-version 1 |
+          jq --raw-output '.packages[] | select(.name=="oefpil") | .rust_version')
+        echo "MSRV=$msrv" >> $GITHUB_ENV
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.MSRV }}
+        components: rustfmt, rust-docs, clippy
+    - name: dependencies
+      run: |
+        sudo apt update
+        sudo apt install liblapack3 gcc
+    - name: test
+      run: cargo test --examples --features random
+    - name: run
+      run: cargo run --example sine --features random
+    - name: clippy
+      run: |
+        cargo clippy --tests --examples
+    - name: doc
+      run: cargo doc
+    - name: fmt
+      run: cargo fmt --check
+  all-features:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: msrv
+      run: |
+        msrv=$(cargo metadata --no-deps --format-version 1 |
+          jq --raw-output '.packages[] | select(.name=="oefpil") | .rust_version')
+        echo "MSRV=$msrv" >> $GITHUB_ENV
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.MSRV }}
+        components: rustfmt, rust-docs, clippy
+    - name: dependencies
+      run: |
+        sudo apt update
+        sudo apt install gfortran
+    - name: test
+      run: cargo test --examples --all-features --features oefpil-sys/built-in
+    - name: run
+      run: cargo run --example sine --all-features --features oefpil-sys/built-in
+    - name: clippy
+      run: |
+        cargo clippy --tests --examples --all-features --features oefpil-sys/built-in
+    - name: doc
+      run: cargo doc --all-features --features oefpil-sys/built-in
+    - name: fmt
+      run: cargo fmt --check
+  all-features-nightly:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: nightly
+        components: rustfmt, rust-docs, clippy
+    - name: dependencies
+      run: |
+        sudo apt update
+        sudo apt install gfortran
+    - name: test
+      run: cargo test --examples --all-features --features oefpil-sys/built-in
+    - name: run
+      run: cargo run --example sine --all-features --features oefpil-sys/built-in
+    - name: clippy
+      run: |
+        cargo clippy --tests --examples --all-features --features oefpil-sys/built-in
+    - name: doc
+      env:
+        RUSTDOCFLAGS: --cfg docsrs
+      run: |
+        cargo doc --all-features --features oefpil-sys/built-in \
+        -Z unstable-options -Z rustdoc-scrape-examples
+    - name: fmt
+      run: cargo fmt --check
