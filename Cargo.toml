@@ -25,6 +25,7 @@ categories = [
 ]
 include = [
 	"src/**/*.rs",
+	"examples/**/*.rs",
 	"katex.html",
 	"Cargo.toml",
 	"README.md",
