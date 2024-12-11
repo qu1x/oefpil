@@ -24,6 +24,7 @@ categories = [
 ]
 include = [
 	"src/**",
+	"build.rs",
 	"Cargo.toml",
 	"README.md",
 	"RELEASES.md",
