@@ -58,7 +58,7 @@ statically links to the [C/Fortran library].
 
 See the [release history](RELEASES.md) to keep track of the development.
 
-[`oefpil-sys`]: https://crates.io/crates/oefpil
+[`oefpil-sys`]: https://crates.io/crates/oefpil-sys
 [C/Fortran library]: https://gitlab.com/cmi6014/oefpil
 
 ## Licenses
