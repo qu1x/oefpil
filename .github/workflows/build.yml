@@ -26,7 +26,7 @@ jobs:
         sudo apt update
         sudo apt install liblapack3 gcc
     - name: test
-      run: cargo test --examples --features random
+      run: cargo test --features random
     - name: run
       run: cargo run --example sine --features random
     - name: clippy
@@ -56,7 +56,7 @@ jobs:
         sudo apt update
         sudo apt install gfortran
     - name: test
-      run: cargo test --examples --all-features --features oefpil-sys/built-in
+      run: cargo test --all-features --features oefpil-sys/built-in
     - name: run
       run: cargo run --example sine --all-features --features oefpil-sys/built-in
     - name: clippy
@@ -81,7 +81,7 @@ jobs:
         sudo apt update
         sudo apt install gfortran
     - name: test
-      run: cargo test --examples --all-features --features oefpil-sys/built-in
+      run: cargo test --all-features --features oefpil-sys/built-in
     - name: run
       run: cargo run --example sine --all-features --features oefpil-sys/built-in
     - name: clippy
