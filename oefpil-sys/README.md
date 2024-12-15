@@ -25,11 +25,11 @@ See the [release history](RELEASES.md) to keep track of the development.
 ## System Requirements
 
 By default, this crate dynamically links to the runtime dependency `liblapack` (e.g., package
-`liblapack3` on Debian, package `lapack` on Fedora Linux or Arch Linux) and requires a C
-compiler as build dependency (e.g., package `clang` or `gcc` on Debian, Fedora Linux, or Arch
-Linux). With the `built-in` feature, a subset of `liblapack` and its dependency `libblas`
-shipped with this crate is compiled and statically linked. This eliminates the runtime
-dependency `liblapack` but requires the GCC Fortran compiler (e.g, `gfortran` on Debian,
+`liblapack-dev` on Debian, package `lapack-devel` on Fedora Linux, or package `lapack` on Arch
+Linux) and requires a C compiler as build dependency (e.g., package `clang` or `gcc` on Debian,
+Fedora Linux, or Arch Linux). With the `built-in` feature, a subset of `liblapack` and its
+dependency `libblas` shipped with this crate is compiled and statically linked. This eliminates the
+runtime dependency `liblapack` but requires the GCC Fortran compiler (e.g, `gfortran` on Debian,
 `gcc-fortran` on Fedora Linux or Arch Linux) as build dependency which itself depends on and
 complements the GCC C compiler such that GCC can compile both C and Fortran sources. It is
 attempted to statically link the dependencies of the subset (i.e, `libgfortran` and

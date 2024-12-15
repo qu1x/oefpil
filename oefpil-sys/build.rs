@@ -25,7 +25,8 @@ fn main() {
                         .map(str::to_string)
                 })
         }
-        let blas_path = src.join("blas");
+        let lapack_path = src.join("lapack");
+        let blas_path = lapack_path.join("blas");
         #[rustfmt::skip]
 		let blas_file = [
 			"dcopy.f",
@@ -45,7 +46,6 @@ fn main() {
 			"lsame.f",
 		]
 		.map(|f| blas_path.join(f));
-        let lapack_path = src.join("lapack");
         #[rustfmt::skip]
 		let lapack_file = [
 			"dgemqr.f",
