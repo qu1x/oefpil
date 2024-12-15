@@ -40,8 +40,8 @@ attempted to statically link the dependencies of the subset (i.e, `libgfortran` 
 Except as noted below, this work is dual-licensed under either [`MIT`] or [`Apache-2.0`] at your
 option. This means you can select the license you prefer. This dual-licensing approach is the
 de-facto standard in the Rust ecosystem. Copyrights in this work are retained by their contributors
-and no copyright assignment is required to contribute to this work. For full authorship and
-contributorship information, see the individual files and the version control history.
+and no copyright assignment is required to contribute to this work. For full authorship information,
+see the individual files and the version control history.
 
 The works imported from the [C/Fortran library] are licensed as follows:
 
