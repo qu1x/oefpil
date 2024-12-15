@@ -14,7 +14,9 @@
 [Rust]: https://img.shields.io/badge/rust-v1.82.0-brightgreen.svg
 [License]: https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg
 
-Rust FFI bindings to statically linked [C/Fortran library](https://gitlab.com/cmi6014/oefpil) OEFPIL
+Rust FFI bindings to statically linked [C/Fortran library] OEFPIL
+
+[C/Fortran library]: https://gitlab.com/cmi6014/oefpil
 
 For a safe API, see the [`oefpil`](https://crates.io/crates/oefpil) crate.
 
@@ -35,26 +37,33 @@ attempted to statically link the dependencies of the subset (i.e, `libgfortran` 
 
 ## Licenses
 
-This combined work is free, open source, open collaboration, and permissively licensed.
+Except as noted below, this work is dual-licensed under either [`MIT`] or [`Apache-2.0`] at your
+option. This means you can select the license you prefer. This dual-licensing approach is the
+de-facto standard in the Rust ecosystem. Copyrights in this work are retained by their contributors
+and no copyright assignment is required to contribute to this work. For full authorship and
+contributorship information, see the individual files and the version control history.
 
-Except where noted (below and/or in individual files), this combined work is dual-licensed under
-either [`MIT`] or [`Apache-2.0`] at your option. This means you can select the license you prefer.
-This dual-licensing approach is the de-facto standard in the Rust ecosystem. For full authorship
-information, see the individual files and/or the commit history.
+The works imported from the [C/Fortran library] are licensed as follows:
 
-The dependencies shipped with this combined work are licensed as follows:
+  * [oefpil](src/oefpil) is licensed under [`MIT`] with copyright notice:
 
-  * [oefpil] is licensed under [`MIT`].
-  * [blas], [lapack], and [math77_chi2] are licensed under [`BSD-3-Clause`].
+    Copyright © 2020 Czech Metrology Institute
 
-[oefpil]: src/oefpil
-[blas]: src/blas
-[lapack]: src/lapack
-[math77_chi2]: src/math77_chi2
+  * [lapack](src/lapack) requests to credit its authors, as suggested, by citing its [Users' Guide].
+    It is licensed under **modified** [`BSD-3-Clause`] with copyright notice:
+
+    Copyright © 1992-2013 The University of Tennessee
+
+    Copyright © 1992-2013 The University of Tennessee Research Foundation
+
+    Copyright © 2000-2013 The University of California Berkeley
+
+    Copyright © 2006-2013 The University of Colorado Denver
 
 [`MIT`]: LICENSE-MIT
 [`Apache-2.0`]: LICENSE-APACHE
 [`BSD-3-Clause`]: LICENSE-BSD
+[Users' Guide]: https://www.netlib.org/lapack/lug/lapack_lug.html
 
 ## Contributions
 
