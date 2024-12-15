@@ -24,7 +24,7 @@ jobs:
     - name: dependencies
       run: |
         sudo apt update
-        sudo apt install liblapack3 gcc
+        sudo apt install liblapack-dev gcc
     - name: test
       run: cargo test --features random
     - name: run
