@@ -1232,9 +1232,9 @@ pub struct Parameter<'a> {
     ///
     /// ```math
     /// \c{P}{P} \equiv \begin{pmatrix}
-    /// & \c{P_1}{P_1}         & \dots  & \c{P_1}{P_{|P|}}     & \\[1em]
-    /// & \vdots               & \ddots & \vdots               & \\[1em]
-    /// & \c{P_{|P|}}{P_{|P|}} & \dots  & \c{P_{|P|}}{P_{|P|}} &
+    /// & \c{P_1}{P_1}     & \dots  & \c{P_1}{P_{|P|}}     & \\[1em]
+    /// & \vdots           & \ddots & \vdots               & \\[1em]
+    /// & \c{P_{|P|}}{P_1} & \dots  & \c{P_{|P|}}{P_{|P|}} &
     /// \end{pmatrix}
     /// ```
     ///
