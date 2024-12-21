@@ -258,7 +258,7 @@ impl Default for Algorithm {
     fn default() -> Self {
         Self {
             criterion: Criterion::default(),
-            tolerance: (f64::EPSILON.ln() * 2.0 / 3.0).exp(),
+            tolerance: f64::EPSILON.powf(2.0 / 3.0),
             iteration_limit: 100,
             verbosity: Verbosity::default(),
         }
