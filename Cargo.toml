@@ -53,7 +53,6 @@ const-hex = "1.13.1"
 
 [lints.rust]
 missing-docs = "forbid"
-unsafe-op-in-unsafe-fn = "forbid"
 
 [lints.rustdoc]
 broken-intra-doc-links = "forbid"

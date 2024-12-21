@@ -152,7 +152,7 @@ pub enum Verbosity {
 ///
 /// This function is safe as long as the pointers are valid.
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn dcdchi(chisq: f64, nu: f64, p: *mut f64, q: *mut f64, ierr: *mut c_long) {
     unsafe {
         dgami(0.5 * nu, 0.5 * chisq, p, q, ierr);
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn dcdchi(chisq: f64, nu: f64, p: *mut f64, q: *mut f64, i
 ///
 /// This function is safe as long as the pointers are valid.
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn dgami(a: f64, x: f64, pans: *mut f64, qans: *mut f64, ierr: *mut c_long) {
     unsafe {
         (*pans, *ierr) = if x >= 0.0 && a > 0.0 {
