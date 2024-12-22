@@ -6,16 +6,25 @@
 //!
 //! # System Requirements
 //!
-//! By default, this crate dynamically links to the runtime dependency `liblapack` (e.g., package
-//! `liblapack3` on Debian, package `lapack` on Fedora Linux or Arch Linux) and requires a C
-//! compiler as build dependency (e.g., package `clang` or `gcc` on Debian, Fedora Linux, or Arch
-//! Linux). With the `built-in` feature, a subset of `liblapack` and its dependency `libblas`
-//! shipped with this crate is compiled and statically linked. This eliminates the runtime
-//! dependency `liblapack` but requires the GCC Fortran compiler (e.g, `gfortran` on Debian,
-//! `gcc-fortran` on Fedora Linux or Arch Linux) as build dependency which itself depends on and
-//! complements the GCC C compiler such that GCC can compile both C and Fortran sources. It is
-//! attempted to statically link the dependencies of the subset (i.e, `libgfortran` and
-//! `libquadmath`) whereas dynamic linking serves as fallback if no static libraries are found.
+//! By default, this crate dynamically links to the runtime dependency LAPACK and requires a C
+//! compiler as build dependency. With the `built-in` feature enabled (marked with ☑ in the table
+//! below), a subset of LAPACK and its dependency BLAS shipped with this crate is compiled and
+//! statically linked. This eliminates the runtime dependency LAPACK but requires the GCC Fortran
+//! compiler as build dependency which itself depends on and complements the GCC C compiler such
+//! that GCC can compile both C and Fortran sources. It is attempted to statically link the
+//! dependencies of the subset (i.e, the GNU Fortran runtime library and the GCC quad-precision math
+//! library) whereas dynamic linking serves as fallback if no static libraries are found. The
+//! required runtime and build dependencies are satisfied by installing following system packages
+//! where "or" as in `|` has higher precedence than "and" as in `,`:
+//!
+//! | Operating System | `built-in` | Runtime Dependencies | Build Dependencies            |
+//! |------------------|:----------:|----------------------|-------------------------------|
+//! | Debian Bookworm  | ☐          | `liblapack3`         | `gcc \| clang, liblapack-dev` |
+//! | Debian Bookworm  | ☑          | &nbsp;               | `gfortran`                    |
+//! | Fedora Linux     | ☐          | `lapack`             | `gcc \| clang, lapack-devel`  |
+//! | Fedora Linux     | ☑          | &nbsp;               | `gcc-gfortran`                |
+//! | Arch Linux       | ☐          | `lapack`             | `gcc \| clang, lapack`        |
+//! | Arch Linux       | ☑          | &nbsp;               | `gcc-fortran`                 |
 //!
 //! # Overview
 //!
