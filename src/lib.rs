@@ -194,8 +194,9 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!      negative nor zero.
 //!   3. Ensure to pass (co)variances and not standard deviations to [`Covariance::set_tile()`].
 //!   4. Improve the initial estimate of the parameter mean vector $`\lambda`$.
-//!   5. In case of a diagonal [`Covariance::with_unknown_scale()`], use a small fraction of the
-//!      sample means $`v^I_i`$ as estimates for their standard deviations $`\sigma^I_i`$.
+//!   5. Improve the estimate of the sample covariance matrix $`\c{V}{V}`$. For a diagonal
+//!      [`Covariance::with_unknown_scale()`], use a small fraction of the sample means $`v^I_i`$ as
+//!      estimates for their standard deviations $`\sigma^I_i`$.
 //!   6. Adjust the [`Algorithm`] settings.
 //!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
@@ -675,7 +676,7 @@ impl Variable<'_> {
 /// All constructors require the number of samples $`|v|`$ and the number of variables $`|V|`$. The
 /// fields of the matrix are set per tile via [`Self::set_tile()`] or [`Self::with_tile()`] which
 /// deduce whether a tile is a diagonal or block tile by the number of provided fields. When the
-/// (co)variances are partially or fully unknown, try [`Self::with_unknown_scale()`] as last resort.
+/// (co)variances are partially or fully unknown, communicate it via [`Self::with_unknown_scale()`].
 #[derive(Debug, Clone)]
 pub struct Covariance {
     mode: Mode,
