@@ -180,15 +180,33 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!     $`A=A_0\sin(\chi+\chi_0)`$. Eight observations $`v_i\sim V_i`$ with correlation coefficients
 //!     $`\C{V^I_i}{V^I_i}=0.5`$ among variables are sampled where $`i\in[1,8]`$ and $`I\in[1,2]`$.
 //!
+//! # Troubleshooting
+//!
+//! As outlined above, this algorithm is more sensitive to the initial estimate of the paramter mean
+//! vector $`\lambda`$ and to the sample covariance matrix $`\c{V}{V}`$ than alternative algorithms
+//! which also enables it to do a more accurate estimate of the parameter covariance matrix
+//! $`\c{P}{P}`$. Therefore, if the sample covariance matrix $`\c{V}{V}`$ is not well estimated, the
+//! algorithm might abort with an [`AlgorithmError`]. The most promising troubleshooting steps are
+//! as follows in the order mentioned:
+//!
+//!   1. Ensure all inputs satisfy [`f64::is_finite()`].
+//!   2. Ensure all diagonal fields of the sample covariance matrix $`\c{V}{V}`$ are neither
+//!      negative nor zero.
+//!   3. Ensure to pass (co)variances and not standard deviations to [`Covariance::set_tile()`].
+//!   4. Improve the initial estimate of the parameter mean vector $`\lambda`$.
+//!   5. In case of a diagonal [`Covariance::with_unknown_scale()`], use a small fraction of the
+//!      sample means $`v^I_i`$ as estimates for their standard deviations $`\sigma^I_i`$.
+//!   6. Adjust the [`Algorithm`] settings.
+//!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
 //!
 //! # Limitation
 //!
 //! Currently, constructing the [`Covariance`] matrix with correlations among variables (i.e., via
-//! [`Covariance::new_diagonals`] or [`Covariance::new_full`] is limited to $`|V|=2`$. This covers
-//! explicit univariate models $`V=(X^1,Y^1)`$ and implicit bivariate models $`V=(X^1,X^2)`$. In
-//! contrast, constructing the [`Covariance`] matrix with correlations within but not among
-//! variables (i.e., via [`Covariance::new_diagonal`] or [`Covariance::new_block_diagonal`]) is
+//! [`Covariance::new_diagonals()`] or [`Covariance::new_full()`] is limited to $`|V|=2`$. This
+//! covers explicit univariate models $`V=(X^1,Y^1)`$ and implicit bivariate models $`V=(X^1,X^2)`$.
+//! In contrast, constructing the [`Covariance`] matrix with correlations within but not among
+//! variables (i.e., via [`Covariance::new_diagonal()`] or [`Covariance::new_block_diagonal()`]) is
 //! already supported for any number of variables $`|V|`$.
 //!
 //! # Roadmap
@@ -316,7 +334,7 @@ impl Algorithm {
         let mut report = Report {
             degrees_of_freedom: samples
                 .checked_sub(parameters)
-                .filter(|&dof| dof >= usize::from(!variable.covariance.absolute))
+                .filter(|&dof| dof >= usize::from(!variable.covariance.unknown_scale))
                 .ok_or(VariableError::InsufficientDegreesOfFreedom)?,
             ..Report::default()
         };
@@ -347,7 +365,7 @@ impl Algorithm {
                 &mut info,
                 &mut iterations,
                 &mut report.chi_squared_reduced,
-                !variable.covariance.absolute,
+                variable.covariance.unknown_scale,
                 ptr::null_mut(),
             );
             let log = if matches!(logfile, Logfile::Custom(_path)) {
@@ -649,29 +667,15 @@ impl Variable<'_> {
 ///
 /// There is a constructor for each tiling mode:
 ///
-///   * [`Self::new_diagonal()`] (or [`Self::new_identity()`] for no errors)
+///   * [`Self::new_diagonal()`]
 ///   * [`Self::new_block_diagonal()`]
 ///   * [`Self::new_diagonals()`]
 ///   * [`Self::new_full()`]
 ///
-/// All constructors require the number of samples $`|v|`$ and the number of variables $`|V|`$ and
-/// a [`bool`] whether its values are relative or `absolute`. The fields of the matrix are set per
-/// tile via [`Self::set_tile()`] or [`Self::with_tile()`] which deduce whether a tile is a diagonal
-/// or block tile by the number of provided fields.
-///
-/// A covariance matrix has either absolute or relative values. When providing relative values, the
-/// [`Parameter::covariance`] matrix will be rescaled by [`Report::chi_squared_reduced`]. Note that
-/// the degrees of freedom $`\nu`$ and hence $`\chi^2/\nu`$ are not well defined for nonlinear
-/// models or small samples.[^1] Use relative values if you treat the sample uncertainties as
-/// arbitrary weights rather than variances or covariances. Rescaling the parameter covariance
-/// matrix is equivalent to rescaling the sample covariance matrix such that $`\chi^2/\nu`$ becomes
-/// $`1`$. This effectively pretends a successful goodness-of-fit test. With relative values, the
-/// parameter uncertainties do no longer scale with the sample uncertainties and hence should not be
-/// used for uncertainty propagation. With absolute values, the sample uncertainties propagate into
-/// the parameter uncertainties.
-///
-/// [^1]: R. Andrae, T. Schulze-Hartung, and P. Melchior, “Dos and don'ts of reduced chi-squared”,
-/// [Instrumentation and Methods for Astrophysics (2010)](https://doi.org/10.48550/arXiv.1012.3754).
+/// All constructors require the number of samples $`|v|`$ and the number of variables $`|V|`$. The
+/// fields of the matrix are set per tile via [`Self::set_tile()`] or [`Self::with_tile()`] which
+/// deduce whether a tile is a diagonal or block tile by the number of provided fields. When the
+/// (co)variances are partially or fully unknown, try [`Self::with_unknown_scale()`] as last resort.
 #[derive(Debug, Clone)]
 pub struct Covariance {
     mode: Mode,
@@ -680,51 +684,10 @@ pub struct Covariance {
     decomposition: Vec<f64>,
     samples: usize,
     variables: usize,
-    absolute: bool,
+    unknown_scale: bool,
 }
 
 impl Covariance {
-    /// Constructs an identity matrix (i.e, relativ covariance matrix without errors).
-    ///
-    /// Special case of [`Self::new_diagonal()`].
-    ///
-    /// ```math
-    /// \gdef\c#1#2{\textup{Cov}(#1,#2)}
-    /// \c{V}{V} = \begin{pmatrix}
-    /// & \mathcal I &        &            & \\[1em]
-    /// &            & \ddots &            & \\[1em]
-    /// &            &        & \mathcal I & \end{pmatrix}
-    /// ```
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use oefpil::Covariance;
-    ///
-    /// # fn main() -> Result<(), oefpil::OefpilError> {
-    /// let covariance = Covariance::new_identity(3, 2);
-    /// let full = [
-    ///     1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    ///     0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
-    ///     0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-    ///     0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-    ///     0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-    ///     0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    /// ];
-    /// assert_eq!(full, covariance.to_full().as_slice());
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new_identity(samples: usize, variables: usize) -> Self {
-        let mut covariance = Self::new_diagonal(samples, variables, false);
-        let diagonal = &vec![1.0; samples];
-        for variable in 0..variables {
-            covariance.set_tile(variable, variable, diagonal).unwrap();
-        }
-        covariance
-    }
     /// Constructs a diagonal matrix (i.e, diagonal tiles on its diagonal).
     ///
     /// Allocates $`|V|`$ diagonal tiles on its diagonal with $`|v|`$ fields per tile.
@@ -747,7 +710,7 @@ impl Covariance {
     /// use oefpil::Covariance;
     ///
     /// # fn main() -> Result<(), oefpil::OefpilError> {
-    /// let covariance = Covariance::new_diagonal(3, 2, true)
+    /// let covariance = Covariance::new_diagonal(3, 2)
     ///     .with_tile(0, 0, &[1.0, 2.0, 3.0])?
     ///     .with_tile(1, 1, &[4.0, 5.0, 6.0])?;
     /// let full = [
@@ -763,7 +726,7 @@ impl Covariance {
     /// # }
     /// ```
     #[must_use]
-    pub fn new_diagonal(samples: usize, variables: usize, absolute: bool) -> Self {
+    pub fn new_diagonal(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
         let tiles = vec![Mode::None as c_int; variables];
@@ -775,7 +738,7 @@ impl Covariance {
             decomposition: Vec::new(),
             samples,
             variables,
-            absolute,
+            unknown_scale: false,
         }
     }
     /// Constructs a block-diagonal matrix (i.e, diagonal and block tiles on its diagonal).
@@ -801,7 +764,7 @@ impl Covariance {
     /// use oefpil::Covariance;
     ///
     /// # fn main() -> Result<(), oefpil::OefpilError> {
-    /// let covariance = Covariance::new_block_diagonal(3, 3, true)
+    /// let covariance = Covariance::new_block_diagonal(3, 3)
     ///     .with_tile(0, 0, &[1.0, 2.0, 3.0])?
     ///     .with_tile(1, 1, &[4.0,
     ///                        7.0, 5.0,
@@ -825,7 +788,7 @@ impl Covariance {
     /// # }
     /// ```
     #[must_use]
-    pub fn new_block_diagonal(samples: usize, variables: usize, absolute: bool) -> Self {
+    pub fn new_block_diagonal(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
         let tiles = vec![Mode::None as c_int; variables];
@@ -837,7 +800,7 @@ impl Covariance {
             decomposition: Vec::new(),
             samples,
             variables,
-            absolute,
+            unknown_scale: false,
         }
     }
     /// Constructs a matrix of solely diagonal tiles (i.e, diagonal tiles allover).
@@ -862,7 +825,7 @@ impl Covariance {
     /// use oefpil::Covariance;
     ///
     /// # fn main() -> Result<(), oefpil::OefpilError> {
-    /// let covariance = Covariance::new_diagonals(3, 2, true)
+    /// let covariance = Covariance::new_diagonals(3, 2)
     ///     .with_tile(0, 0, &[1.0, 2.0, 3.0])?
     ///     .with_tile(0, 1, &[7.0, 8.0, 9.0])?
     ///     .with_tile(1, 1, &[4.0, 5.0, 6.0])?;
@@ -879,7 +842,7 @@ impl Covariance {
     /// # }
     /// ```
     #[must_use]
-    pub fn new_diagonals(samples: usize, variables: usize, absolute: bool) -> Self {
+    pub fn new_diagonals(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
         assert_eq!(
@@ -895,7 +858,7 @@ impl Covariance {
             decomposition: Vec::new(),
             samples,
             variables,
-            absolute,
+            unknown_scale: false,
         }
     }
     /// Constructs a full matrix (i.e, diagonal and block tiles allover).
@@ -922,13 +885,13 @@ impl Covariance {
     /// use oefpil::Covariance;
     ///
     /// # fn main() -> Result<(), oefpil::OefpilError> {
-    /// let covariance_1 = Covariance::new_full(3, 2, true)
+    /// let covariance_1 = Covariance::new_full(3, 2)
     ///     .with_tile(0, 0, &[1.0, 2.0, 3.0])?
     ///     .with_tile(0, 1, &[4.0,
     ///                        7.0, 5.0,
     ///                        8.0, 9.0, 6.0])?
     ///     .with_tile(1, 1, &[4.0, 5.0, 6.0])?;
-    /// let covariance_2 = Covariance::new_full(3, 2, true)
+    /// let covariance_2 = Covariance::new_full(3, 2)
     ///     .with_tile(0, 0, &[1.0, 2.0, 3.0])?
     ///     .with_tile(0, 1, &[4.0, 7.0, 8.0,
     ///                        7.0, 5.0, 9.0,
@@ -948,7 +911,7 @@ impl Covariance {
     /// # }
     /// ```
     #[must_use]
-    pub fn new_full(samples: usize, variables: usize, absolute: bool) -> Self {
+    pub fn new_full(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
         assert_eq!(
@@ -964,7 +927,7 @@ impl Covariance {
             decomposition: Vec::new(),
             samples,
             variables,
-            absolute,
+            unknown_scale: false,
         }
     }
     /// Sets `fields` of diagonal or block tile at `row` and `column`.
@@ -1097,6 +1060,28 @@ impl Covariance {
         fields: &[f64],
     ) -> Result<Self, OefpilError> {
         self.set_tile(row, column, fields).map(|()| self)
+    }
+    /// Assumes this sample covariance matrix is (already) multiplied by an unknown scalar.
+    ///
+    /// Causes [`Algorithm::fit()`] to multiply the [`Parameter::covariance`] matrix by
+    /// [`Report::chi_squared_reduced`] which is equivalent to rescaling this sample covariance
+    /// matrix such that $`\chi_{\nu}^2\approx 1`$. This effectively pretends [Pearson's $`\chi^2`$
+    /// test] of [goodness of fit] to be successful. This is common practice to correct for over- or
+    /// under-dispersion due to partially or fully unknown (co)variances. Note however that in this
+    /// way, the parameter uncertainties do no longer scale with the sample uncertainties and hence
+    /// this correction is in conflict with uncertainty propagation.
+    ///
+    /// [Pearson's $`\chi^2`$ test]: https://en.wikipedia.org/wiki/Pearson%27s_chi-squared_test
+    /// [goodness of fit]: https://en.wikipedia.org/wiki/Goodness_of_fit
+    ///
+    /// # Validity
+    ///
+    /// This correction is as valid as the definition of [`Report::degrees_of_freedom`].
+    #[must_use]
+    #[inline]
+    pub const fn with_unknown_scale(mut self) -> Self {
+        self.unknown_scale = true;
+        self
     }
     /// Computes and stores [Cholesky decomposition] $`L`$ where $`\c{V}{V}=LL^T`$.
     ///
@@ -1287,8 +1272,21 @@ pub struct Report {
     /// $`\chi^2\equiv\sum_{I,i} (v^I_i-\hat\mu^I_i)^2`$
     pub chi_squared: f64,
     /// $`\chi^2_\nu\equiv\chi^2/\nu`$
+    ///
+    /// # Validity
+    ///
+    /// See [`Report::degrees_of_freedom`] for its validity.
     pub chi_squared_reduced: f64,
     /// $`\nu\equiv|v|-|P|`$
+    ///
+    /// # Validity
+    ///
+    /// Valid whenever [`Covariance::samples()`] is sufficiently large and [`Model`] is sufficiently
+    /// linear.[^1]
+    ///
+    /// [^1]: R. Andrae, T. Schulze-Hartung, and P. Melchior, “Dos and don'ts of reduced
+    /// chi-squared”, [Instrumentation and Methods for Astrophysics
+    /// (2010)](https://doi.org/10.48550/arXiv.1012.3754).
     pub degrees_of_freedom: usize,
     /// Iterations until convergence.
     pub iterations: usize,
@@ -1305,6 +1303,10 @@ impl Report {
     ///
     /// [p-value]: https://en.wikipedia.org/wiki/P-value
     /// [incomplete gamma function]: https://en.wikipedia.org/wiki/Incomplete_gamma_function
+    ///
+    /// # Validity
+    ///
+    /// See [`Report::degrees_of_freedom`] for its validity.
     ///
     /// # Errors
     ///
@@ -1469,7 +1471,7 @@ pub enum AlgorithmError {
     #[display("iteration limit reached before satisfying convergence criterion")]
     IterationLimit,
     /// Numerical error probably due to infinite values.
-    #[display("numerical display probably due to infinite values")]
+    #[display("numerical error probably due to infinite values")]
     NumericalError,
 }
 

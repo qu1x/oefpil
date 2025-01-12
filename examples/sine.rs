@@ -8,19 +8,19 @@ use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
 #[allow(clippy::float_cmp)]
 fn main() -> Result<(), OefpilError> {
     // Define explicit model of one independent variable and two parameters.
-    let model = Model {
-        fx: |x, p| p[1] * (x[0] + p[0]).sin(),
-        dfdx: &[|x, p| p[1] * (x[0] + p[0]).cos()],
+    const MODEL: Model = Model {
+        fx: |x, p| p[1] * (x[0] + p[0]).to_radians().sin(),
+        dfdx: &[|x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians()],
         dfdp: &[
-            |x, p| p[1] * (x[0] + p[0]).cos(),
-            |x, p| (x[0] + p[0]).sin(),
+            |x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians(),
+            |x, p| (x[0] + p[0]).to_radians().sin(),
         ],
         implicit: false,
     };
     // Define true values.
-    let p_mean = [8f64.to_radians(), 10.0];
-    let x_mean = [-60.0, -40.0, -20.0, -10.0, 10.0, 20.0, 40.0, 60.0].map(f64::to_radians);
-    let y_mean = x_mean.map(|x_mean| (model.fx)(&[x_mean], &p_mean));
+    let p_mean = [8f64, 10.0];
+    let x_mean = [-60.0, -40.0, -20.0, -10.0, 10.0, 20.0, 40.0, 60.0];
+    let y_mean = x_mean.map(|x_mean| (MODEL.fx)(&[x_mean], &p_mean));
     // Define covariance matrix with constant Pearson `correlation` `coefficient` (PCC).
     let x_deviation = x_mean.map(|x| x.abs() * 2e-2);
     let y_deviation = y_mean.map(|y| y.abs() * 8e-2);
@@ -30,7 +30,7 @@ fn main() -> Result<(), OefpilError> {
         .zip(&y_deviation)
         .map(|(x, y)| x * y * coefficient)
         .collect::<Vec<f64>>();
-    let covariance = &Covariance::new_diagonals(8, 2, true)
+    let covariance = &Covariance::new_diagonals(8, 2)
         .with_tile(0, 0, &x_deviation.map(|x| x * x))?
         .with_tile(1, 1, &y_deviation.map(|y| y * y))?
         .with_tile(0, 1, &correlation)?
@@ -54,7 +54,7 @@ fn main() -> Result<(), OefpilError> {
         covariance,
     };
     // Pretend mediocre estimates of parameter means and assign output slices.
-    let p_mean_initial = [9.5f64.to_radians(), 12.0];
+    let p_mean_initial = [9.5f64, 12.0];
     let mut parameter = Parameter {
         mean: &mut p_mean_initial.clone(),
         deviation: &mut [0f64; 2],
@@ -63,14 +63,14 @@ fn main() -> Result<(), OefpilError> {
     };
     // Perform fitting with default settings.
     let oefpil = Algorithm::default();
-    let report = oefpil.fit(model, &mut variable, &mut parameter, Logfile::default())?;
+    let report = oefpil.fit(MODEL, &mut variable, &mut parameter, Logfile::default())?;
     // Assert expected results.
     let round = |value: f64| (value * 1e2).round() / 1e2;
     assert_eq!(7, report.iterations);
     assert_eq!(0.73, report.chi_squared_p_value().map(round)?);
     // `parameter.mean` deviates from `p_mean` in agreement with `parameter.deviation`.
-    assert_eq!(8.16, round(parameter.mean[0].to_degrees()));
-    assert_eq!(0.19, round(parameter.deviation[0].to_degrees()));
+    assert_eq!(8.16, round(parameter.mean[0]));
+    assert_eq!(0.19, round(parameter.deviation[0]));
     assert_eq!(9.95, round(parameter.mean[1]));
     assert_eq!(0.28, round(parameter.deviation[1]));
     assert_eq!(0.30, round(parameter.correlation[1]));
@@ -91,7 +91,7 @@ fn main() -> Result<(), OefpilError> {
             deviation: &mut [0f64; 2],
             correlation: &mut [0f64; 4],
         };
-        oefpil.fit(model, &mut variable, &mut parameter, Logfile::default())?;
+        oefpil.fit(MODEL, &mut variable, &mut parameter, Logfile::default())?;
         p_sample[sample] = parameter.mean[0];
         p_sample[sample + samples] = parameter.mean[1];
         p_correlation[sample] = parameter.correlation[1];
@@ -106,8 +106,8 @@ fn main() -> Result<(), OefpilError> {
     let [p_mean_1, p_deviation_1] = mean_deviation(&p_sample[samples..]);
     let [p_correlation_mean, p_correlation_deviation] = mean_deviation(&p_correlation);
     // Simulation agrees well with `p_mean` and `parameter.deviation`.
-    assert_eq!(8.00, round(p_mean_0.to_degrees()));
-    assert_eq!(0.19, round(p_deviation_0.to_degrees()));
+    assert_eq!(8.00, round(p_mean_0));
+    assert_eq!(0.19, round(p_deviation_0));
     assert_eq!(10.0, round(p_mean_1));
     assert_eq!(0.28, round(p_deviation_1));
     assert_eq!(0.30, round(p_correlation_mean));

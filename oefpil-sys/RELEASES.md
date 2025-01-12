@@ -1,3 +1,7 @@
+# Version 0.2.0 (2025-01-12)
+
+  * Improve documentation (i.e., use table for system requirements).
+
 # Version 0.1.1 (2024-12-15)
 
   * Clean up documentation (e.g., license files, copyright notices, system requirements).
