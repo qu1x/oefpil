@@ -184,7 +184,7 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!
 //! As outlined above, this algorithm is more sensitive to the initial estimate of the paramter mean
 //! vector $`\lambda`$ and to the sample covariance matrix $`\c{V}{V}`$ than alternative algorithms
-//! which also enables it to do a more accurate estimate of the parameter covariance matrix
+//! which also enables it to yield a more accurate estimate of the parameter covariance matrix
 //! $`\c{P}{P}`$. Therefore, if the sample covariance matrix $`\c{V}{V}`$ is not well estimated, the
 //! algorithm might abort with an [`AlgorithmError`]. The most promising troubleshooting steps are
 //! as follows in the order mentioned:
