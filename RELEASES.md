@@ -1,4 +1,4 @@
-# Version 0.2.0 (2025-01-12)
+# Version 0.2.0 (2025-01-14)
 
   * Refactor constructors for sample covariance matrix introducing `with_unknown_scale()`.
   * Redefine model of `sine.rs` example in degrees rather than radians.

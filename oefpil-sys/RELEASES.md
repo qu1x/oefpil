@@ -1,4 +1,4 @@
-# Version 0.2.0 (2025-01-12)
+# Version 0.2.0 (2025-01-14)
 
   * Improve documentation (i.e., use table for system requirements).
 
