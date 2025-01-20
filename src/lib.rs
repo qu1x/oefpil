@@ -1403,8 +1403,14 @@ pub enum VariableError {
     ///
     /// Requirements are:
     ///
-    ///   * $`\nu\ge 0`$ for absolute covariance matrix, and
-    ///   * $`\nu\ge 1`$ for relative covariance matrix.
+    ///   * $`\nu\ge 0`$ for a fully known [`Covariance`],
+    ///   * $`\nu\ge 1`$ for a [`Covariance::with_unknown_scale()`].
+    ///
+    /// There must be at least one parameter to fit against a sample of at least one observation,
+    /// leading to the requirement $`\nu\ge 0`$. For a [`Covariance::with_unknown_scale()`], the
+    /// [`Parameter::covariance`] matrix is being multiplied by $`\chi_\nu^2\equiv\chi^2/\nu`$ which
+    /// would be infinite without another observation due to division by zero, leading to the
+    /// requirement $`\nu\ge 1`$.
     #[display("insufficient degrees of freedom")]
     InsufficientDegreesOfFreedom,
 }
@@ -1464,7 +1470,7 @@ pub enum ParameterError {
     CorrelationRequiresDeviation,
 }
 
-/// Algorithm displays.
+/// Algorithm errors.
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum AlgorithmError {
