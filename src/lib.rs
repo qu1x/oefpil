@@ -87,8 +87,8 @@
 //! \end{align}
 //! ```
 //!
-//! The observation $`v^I_i\sim V^I_i=\mu^I_i+\e^I_i`$ deviates by $`\e^I_i`$ from the usually
-//! unknown true value $`\mu^I_i`$. The [observational error] $`\e^I_i=(L\d)^I_i`$ is a realization
+//! The observation $`v^I_i=\mu^I_i+\e^I_i`$ deviates by $`\e^I_i`$ from the usually unknown true
+//! value $`\mu^I_i`$. The [observational error] $`\e^I_i=(L\d)^I_i`$ is a realization
 //! $`\d^I_i\sim\Delta^I_i\equiv\mathcal{N}(0,1)`$ of a standard [normal distribution] possibly
 //! correlated by the [Cholesky decomposition] $`L`$ of the [covariance matrix] $`\c{V}{V}=LL^T`$.
 //! Equations (4, 5) show the covariance matrix tiled by variables with its tiles $`\c{V^R}{V^C}`$
