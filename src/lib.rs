@@ -227,17 +227,17 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 use derive_more::{Display, Error, From};
+pub use oefpil_sys::{Criterion, Verbosity};
 use oefpil_sys::{
-    dpotrf,
-    libc::{fclose, fflush, fopen, FILE},
+    Evaluate, Mode, dpotrf,
+    libc::{FILE, fclose, fflush, fopen},
     oefpil, oefpil_tcm_blockdiag_set_tile_diag, oefpil_tcm_blockdiag_set_tile_full,
     oefpil_tcm_blockdiag_set_tile_half, oefpil_tcm_diag_set_tile_diag,
     oefpil_tcm_diags_set_tile_diag, oefpil_tcm_full_set_tile_diag, oefpil_tcm_full_set_tile_full,
-    oefpil_tcm_full_set_tile_half, stderr_file, stdout_file, Evaluate, Mode,
+    oefpil_tcm_full_set_tile_half, stderr_file, stdout_file,
 };
-pub use oefpil_sys::{Criterion, Verbosity};
 use std::{
-    ffi::{c_int, c_void, CString},
+    ffi::{CString, c_int, c_void},
     fs::OpenOptions,
     io::{self, BufRead, BufReader, ErrorKind},
     num::TryFromIntError,

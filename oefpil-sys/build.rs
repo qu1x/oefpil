@@ -136,7 +136,7 @@ fn main() {
         .compile("oefpil");
     #[cfg(feature = "bindgen")]
     {
-        use bindgen::{callbacks::ParseCallbacks, Builder};
+        use bindgen::{Builder, callbacks::ParseCallbacks};
         use std::{env::var, path::PathBuf};
         #[derive(Debug)]
         struct RenameItem<'a> {

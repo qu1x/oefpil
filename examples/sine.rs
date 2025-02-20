@@ -3,7 +3,7 @@
 use oefpil::{
     Algorithm, Covariance, Distribution, Logfile, Model, OefpilError, Parameter, Variable,
 };
-use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
+use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 
 #[allow(clippy::float_cmp)]
 fn main() -> Result<(), OefpilError> {

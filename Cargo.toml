@@ -1,8 +1,8 @@
 [package]
 name = "oefpil"
 version = "0.2.0"
-rust-version = "1.82.0"
-edition = "2021"
+rust-version = "1.85.0"
+edition = "2024"
 description = """Optimum Estimate of Function Parameters by Iterated Linearization (OEFPIL):
 Algorithm for nonlinear function fitting to data with errors in both dependent and independent
 variables where correlation, both within variables and among variables, might be present."""
