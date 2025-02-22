@@ -1,3 +1,9 @@
+# Version 0.3.0 (2025-02-22)
+
+  * Rust Edition 2024.
+  * Bump MSRV.
+  * Bump dependencies.
+
 # Version 0.2.0 (2025-01-14)
 
   * Improve documentation (i.e., use table for system requirements).
