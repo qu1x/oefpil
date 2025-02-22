@@ -11,7 +11,7 @@
 [Documentation]: https://docs.rs/oefpil-sys/badge.svg
 [Downloads]: https://img.shields.io/crates/d/oefpil-sys.svg
 [Version]: https://img.shields.io/crates/v/oefpil-sys.svg
-[Rust]: https://img.shields.io/badge/rust-v1.82.0-brightgreen.svg
+[Rust]: https://img.shields.io/badge/rust-v1.85.0-brightgreen.svg
 [License]: https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg
 
 Rust FFI bindings to statically linked [C/Fortran library] OEFPIL

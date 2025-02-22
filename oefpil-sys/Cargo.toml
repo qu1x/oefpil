@@ -39,7 +39,7 @@ special = "0.11.3"
 built-in = []
 
 [build-dependencies]
-cc = "1.2.9"
+cc = "1.2.15"
 bindgen = { version = "0.71.1", optional = true }
 
 [lints.rust]
