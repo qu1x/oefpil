@@ -162,7 +162,7 @@
 //!
 //!   * `random` -- Random [`Distribution::sample()`] possibly correlated by
 //!     [`Covariance::with_decomposition()`].
-//!   * [`oefpil-sys`]`/built-in` -- Statically linked Fortran dependencies.
+//!   * <code>[oefpil-sys]/built-in</code> -- Statically linked Fortran dependencies.
 #![cfg_attr(
     not(feature = "random"),
     doc = r"
@@ -261,7 +261,7 @@ pub struct Algorithm {
     pub criterion: Criterion,
     /// Convergence tolerance.
     ///
-    /// Default is [`f64::EPSILON`]`.`[`powf`](`f64::powf`)`(2.0 / 3.0)`.
+    /// Default is <code>[f64::EPSILON].[powf](f64::powf)(2.0 / 3.0)</code>.
     pub tolerance: f64,
     /// Iteration limit.
     ///
@@ -363,9 +363,9 @@ impl Algorithm {
                 file,
                 ptr::from_mut(&mut report.chi_squared),
                 self.criterion as i32,
-                &mut info,
-                &mut iterations,
-                &mut report.chi_squared_reduced,
+                &raw mut info,
+                &raw mut iterations,
+                &raw mut report.chi_squared_reduced,
                 variable.covariance.unknown_scale,
                 ptr::null_mut(),
             );
@@ -1111,7 +1111,7 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
                 order,
                 self.decomposition.as_mut_ptr(),
                 order,
-                &mut info,
+                &raw mut info,
             );
         };
         match info {
@@ -1320,9 +1320,9 @@ impl Report {
             oefpil_sys::dcdchi(
                 self.chi_squared,
                 f64::from(i32::try_from(self.degrees_of_freedom)?),
-                &mut p,
-                &mut q,
-                &mut error,
+                &raw mut p,
+                &raw mut q,
+                &raw mut error,
             );
         }
         match error {

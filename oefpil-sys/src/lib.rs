@@ -224,7 +224,7 @@ unsafe extern "C" {
     ///
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     pub unsafe fn oefpil_tcm_diag_new(
         samples: c_int,
         variables: c_int,
@@ -237,8 +237,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_diag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_diag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row_column` in `0..variables`.
     ///   * Tile `fields` to copy into diagonal tile at `row_column` of `tcm`. Number of `fields` is
     ///     `samples`.
@@ -257,7 +257,7 @@ unsafe extern "C" {
     ///
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     pub unsafe fn oefpil_tcm_blockdiag_new(
         samples: c_int,
         variables: c_int,
@@ -270,8 +270,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_blockdiag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_blockdiag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row_column` in `0..variables`.
     ///   * Tile `fields` to copy into diagonal tile at `row_column` of `tcm`. Number of `fields` is
     ///     `samples`.
@@ -290,8 +290,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_blockdiag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_blockdiag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row_column` in `0..variables`.
     ///   * Tile `fields` to copy into symmetric block tile at `row_column` of `tcm`. Number of
     ///     `fields` is `samples * (samples + 1) / 2`. `fields` is a row-major [triangular slice] of
@@ -313,8 +313,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_blockdiag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_blockdiag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row_column` in `0..variables`.
     ///   * Tile `fields` to copy into symmetric block tile at `row_column` of `tcm`. Number of
     ///     `fields` is `samples.pow(2)`. As the block tile is on the diagonal, `fields` must be
@@ -341,7 +341,7 @@ unsafe extern "C" {
     ///
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
-    ///   * Tile `map` created with [`oefpil_tilemap_alltiles_new`]`(variables)`.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_alltiles_new]\(variables\)</code>.
     pub unsafe fn oefpil_tcm_diags_new(
         samples: c_int,
         variables: c_int,
@@ -354,8 +354,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_diags_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_diags_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row` in `0..variables`.
     ///   * Tile `column` in `0..variables`.
     ///   * Tile `fields` to copy into diagonal tile at `row` and `column` of `tcm`. Number of
@@ -376,7 +376,7 @@ unsafe extern "C" {
     ///
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
-    ///   * Tile `map` created with [`oefpil_tilemap_alltiles_new`]`(variables)`.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_alltiles_new]\(variables\)</code>.
     pub unsafe fn oefpil_tcm_full_new(
         samples: c_int,
         variables: c_int,
@@ -389,8 +389,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_blockdiag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_blockdiag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row` in `0..variables`.
     ///   * Tile `column` in `0..variables`.
     ///   * Tile `fields` to copy into diagonal tile at `row` and `column` of `tcm`. Number of
@@ -411,8 +411,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_blockdiag_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_blockdiag_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row` in `0..variables`.
     ///   * Tile `column` in `0..variables`.
     ///   * Tile `fields` to copy into symmetric block tile at `row_column` of `tcm`. Number of
@@ -436,8 +436,8 @@ unsafe extern "C" {
     ///   * Number of `samples` per variable.
     ///   * Number of `variables` or tiles.
     ///   * Tiled covariance matrix `tcm` created with
-    ///     [`oefpil_tcm_full_new`]`(samples, variables, map)`.
-    ///   * Tile `map` created with [`oefpil_tilemap_diagtiles_new`]`(variables)`.
+    ///     <code>[oefpil_tcm_full_new](samples, variables, map)</code>.
+    ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row` in `0..variables`.
     ///   * Tile `column` in `0..variables`.
     ///   * Tile `fields` to copy into row-major block tile at `row` and `column` of `tcm`. Number
