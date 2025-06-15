@@ -6,6 +6,7 @@
 [![Version][]](https://crates.io/crates/oefpil)
 [![Rust][]](https://www.rust-lang.org)
 [![License][]](https://opensource.org/licenses)
+[![DOI](https://zenodo.org/badge/902104491.svg)](https://doi.org/10.5281/zenodo.15667346)
 
 [Build]: https://github.com/qu1x/oefpil/actions/workflows/build.yml/badge.svg
 [Documentation]: https://docs.rs/oefpil/badge.svg
