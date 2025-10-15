@@ -1,3 +1,7 @@
+# Version 0.3.1 (2025-10-15)
+
+  * Bump dependencies.
+
 # Version 0.3.0 (2025-02-22)
 
   * Rust Edition 2024.

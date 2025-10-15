@@ -1,6 +1,6 @@
 [package]
 name = "oefpil"
-version = "0.3.0"
+version = "0.3.1"
 rust-version = "1.85.0"
 edition = "2024"
 description = """Optimum Estimate of Function Parameters by Iterated Linearization (OEFPIL):
@@ -42,14 +42,14 @@ rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex.html"]
 members = ["oefpil-sys"]
 
 [dependencies]
-oefpil-sys = { version = "0.3.0", path = "oefpil-sys" }
+oefpil-sys = { version = "0.3.1", path = "oefpil-sys" }
 derive_more = { version = "2.0.1", features = ["display", "error", "from"] }
-rand = { version = "0.9.0", default-features = false, optional = true }
+rand = { version = "0.9.1", default-features = false, optional = true }
 rand_distr = { version = "0.5.1", default-features = false, optional = true }
 
 [dev-dependencies]
 rand_chacha = "0.9.0"
-const-hex = "1.14.0"
+const-hex = "1.14.1"
 
 [lints.rust]
 missing-docs = "forbid"

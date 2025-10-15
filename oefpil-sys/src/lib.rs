@@ -19,8 +19,8 @@
 //!
 //! | Operating System | `built-in` | Runtime Dependencies | Build Dependencies            |
 //! |------------------|:----------:|----------------------|-------------------------------|
-//! | Debian Bookworm  | ☐          | `liblapack3`         | `gcc \| clang, liblapack-dev` |
-//! | Debian Bookworm  | ☑          | &nbsp;               | `gfortran`                    |
+//! | Debian Trixie    | ☐          | `liblapack3`         | `gcc \| clang, liblapack-dev` |
+//! | Debian Trixie    | ☑          | &nbsp;               | `gfortran`                    |
 //! | Fedora Linux     | ☐          | `lapack`             | `gcc \| clang, lapack-devel`  |
 //! | Fedora Linux     | ☑          | &nbsp;               | `gcc-gfortran`                |
 //! | Arch Linux       | ☐          | `lapack`             | `gcc \| clang, lapack`        |

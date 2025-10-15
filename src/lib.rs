@@ -224,8 +224,6 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //! [`faer`]: https://docs.rs/faer
 //! [`dyn-stack`]: https://docs.rs/dyn-stack
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
-
 use derive_more::{Display, Error, From};
 pub use oefpil_sys::{Criterion, Verbosity};
 use oefpil_sys::{

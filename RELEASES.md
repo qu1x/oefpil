@@ -1,3 +1,9 @@
+# Version 0.3.1 (2025-10-15)
+
+  * Bump KaTeX and fix its integration.
+  * Bump dependencies.
+  * Drop removed `doc_auto_cfg` feature.
+
 # Version 0.3.0 (2025-02-22)
 
   * Rust Edition 2024.
