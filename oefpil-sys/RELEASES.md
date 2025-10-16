@@ -1,4 +1,4 @@
-# Version 0.3.1 (2025-10-15)
+# Version 0.3.1 (2025-10-16)
 
   * Bump dependencies.
 
