@@ -291,6 +291,8 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
 
     char *env_printformat;
     char *dblprintformat;
+    char printformat[32];
+    size_t printformat_digits;
 
     char *env_maxit;
 
@@ -349,16 +351,18 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     env_printformat = getenv("OEFPIL_PRINTFORMAT");
 
     if (env_printformat) {
-	if (printlevel > 0)
-	    printf("### Format for printing doubles: %% 10.%s ###" "\n\n", env_printformat);
+        printformat_digits = strspn(env_printformat, "0123456789");
 
-#if defined(__POSIX__)
-        dblprintformat = strdup("% 10.");
-#elif defined(_MSC_VER)
-        dblprintformat = _strdup("% 10.");
-#endif
-        
-        strcat(dblprintformat, env_printformat);
+        /* ends up in a format string, so accept nothing but a precision and a conversion */
+        if ((printformat_digits < 4) && env_printformat[printformat_digits]
+            && strchr("eEfFgG", env_printformat[printformat_digits])
+            && !env_printformat[printformat_digits + 1]) {
+            if (printlevel > 0)
+                fprintf(rptfile, "### Format for printing doubles: %% 10.%s ###" "\n\n", env_printformat);
+
+            snprintf(printformat, sizeof(printformat), " %% 10.%s", env_printformat);
+            dblprintformat = printformat;
+        }
     }
 
     /* maximum iterations */

@@ -60,13 +60,13 @@
 //!       * [`oefpil_tcm_full_set_tile_diag`]: Sets fields per diagonal tile.
 //!       * [`oefpil_tcm_full_set_tile_half`]: Sets fields per block tile (row-major [triangular
 //!         slice] of lower triangle).
-//!       * [`oefpil_tcm_full_set_tile_full`]: Sets fields per block tile (row-major slice).
+//!       * [`oefpil_tcm_full_set_tile_full`]: Sets fields per block tile (column-major slice).
 //!
 //! [triangular slice]: https://en.wikipedia.org/wiki/Triangular_array
 
 pub use libc;
 
-use core::ffi::{c_int, c_long, c_void};
+use core::ffi::{c_char, c_int, c_long, c_void};
 use libc::FILE;
 
 /// Function pointer type passed to [`oefpil`] as 1st argument.
@@ -75,11 +75,12 @@ use libc::FILE;
 ///
 ///   * `data`: User-defined structure defining model inclusive number of variables and parameters.
 ///   * `samples`: Number of samples per variable.
-///   * `x`: Sample from independent variables (sample-major).
+///   * `x`: Sample from independent variables (column-major with one column per variable).
 ///   * `p`: Parameters.
 ///   * `fx`: Evaluated dependent variables.
-///   * `dfdx`: Evaluated derivatives in independent variables (sample-major).
-///   * `dfdp`: Evaluated derivatives in parameters (sample-major).
+///   * `dfdx`: Evaluated derivatives in independent variables (column-major with one column per
+///     variable).
+///   * `dfdp`: Evaluated derivatives in parameters (column-major with one column per parameter).
 pub type Evaluate = Option<
     unsafe extern "C" fn(
         data: *mut c_void,
@@ -176,14 +177,55 @@ pub unsafe extern "C" fn dcdchi(chisq: f64, nu: f64, p: *mut f64, q: *mut f64, i
 #[doc(hidden)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dgami(a: f64, x: f64, pans: *mut f64, qans: *mut f64, ierr: *mut c_long) {
-    unsafe {
-        (*pans, *ierr) = if x >= 0.0 && a > 0.0 {
-            (special::Gamma::inc_gamma(x, a), false.into())
+    let (p, q) = if x >= 0.0 && a > 0.0 {
+        if x < a + 1.0 {
+            let p = special::Gamma::inc_gamma(x, a);
+            (p, 1.0 - p)
         } else {
-            (f64::NAN, true.into())
-        };
-        *qans = 1.0 - *pans;
+            let q = upper_inc_gamma(a, x);
+            (1.0 - q, q)
+        }
+    } else {
+        (f64::NAN, f64::NAN)
+    };
+    unsafe {
+        *pans = p;
+        *qans = q;
+        *ierr = q.is_nan().into();
     }
+}
+
+/// Computes the upper incomplete gamma function ratio at `a` and `x` where `x >= a + 1`.
+///
+/// Evaluates its continued fraction directly rather than the complement of the lower ratio as the
+/// latter loses all accuracy once the upper ratio approaches the machine epsilon. Returns NaN if
+/// the continued fraction does not converge.
+fn upper_inc_gamma(a: f64, x: f64) -> f64 {
+    const TINY: f64 = f64::MIN_POSITIVE / f64::EPSILON;
+    if x.is_infinite() {
+        return 0.0;
+    }
+    // Modified Lentz's method.
+    let mut denominator = x + 1.0 - a;
+    let mut upper = 1.0 / TINY;
+    let mut lower = 1.0 / denominator;
+    let mut fraction = lower;
+    for term in 1..=1_000_000u32 {
+        let term = f64::from(term);
+        let numerator = term * (a - term);
+        denominator += 2.0;
+        lower = numerator.mul_add(lower, denominator);
+        lower = 1.0 / if lower.abs() < TINY { TINY } else { lower };
+        upper = denominator + numerator / upper;
+        upper = if upper.abs() < TINY { TINY } else { upper };
+        let delta = upper * lower;
+        fraction *= delta;
+        if (delta - 1.0).abs() < f64::EPSILON {
+            let (ln_gamma, _sign) = special::Gamma::ln_gamma(a);
+            return (a.mul_add(x.ln(), -x) - ln_gamma).exp() * fraction;
+        }
+    }
+    f64::NAN
 }
 
 unsafe extern "C" {
@@ -196,14 +238,14 @@ unsafe extern "C" {
 
     /// Computes the Cholesky factorization of a real symmetric positive definite matrix.
     #[doc(hidden)]
-    pub unsafe fn dpotrf(uplo: *const i8, n: c_int, a: *mut f64, lda: c_int, info: *mut c_int);
+    pub unsafe fn dpotrf(uplo: *const c_char, n: c_int, a: *mut f64, lda: c_int, info: *mut c_int);
 
     /// Multiplies lower or upper triangular matrix with vector.
     #[doc(hidden)]
     pub unsafe fn dtrmv(
-        uplo: *const i8,
-        transa: *const i8,
-        diag: *const i8,
+        uplo: *const c_char,
+        transa: *const c_char,
+        diag: *const c_char,
         n: c_int,
         a: *const f64,
         lda: c_int,
@@ -429,7 +471,7 @@ unsafe extern "C" {
         column: c_int,
         fields: *const f64,
     );
-    /// Sets `fields` of row-major block tile of `tcm` created with [`oefpil_tcm_full_new`].
+    /// Sets `fields` of column-major block tile of `tcm` created with [`oefpil_tcm_full_new`].
     ///
     /// Arguments:
     ///
@@ -440,7 +482,7 @@ unsafe extern "C" {
     ///   * Tile `map` created with <code>[oefpil_tilemap_diagtiles_new]\(variables\)</code>.
     ///   * Tile `row` in `0..variables`.
     ///   * Tile `column` in `0..variables`.
-    ///   * Tile `fields` to copy into row-major block tile at `row` and `column` of `tcm`. Number
+    ///   * Tile `fields` to copy into column-major block tile at `row` and `column` of `tcm`. Number
     ///     of `fields` is `samples.pow(2)`. For block tiles on the diagonal, `fields` must be
     ///     symmetric (not validated) where row-major and column-major order coincide.
     pub unsafe fn oefpil_tcm_full_set_tile_full(
@@ -465,9 +507,9 @@ unsafe extern "C" {
     ///   * `parameter_covariance` matrix of `parameter_mean` vector.
     ///   * Number of `samples` per variable.
     ///   * Number of independent `x_variables`.
-    ///   * `x_sample` of `x_variables` (sample-major).
+    ///   * `x_sample` of `x_variables` (column-major with one column per variable).
     ///   * `y_sample` if not `is_implicit` else [`core::ptr::null`].
-    ///   * `x_mean` of `x_variables` (sample-major).
+    ///   * `x_mean` of `x_variables` (column-major with one column per variable).
     ///   * `y_mean` if not `implicit` else [`core::ptr::null`].
     ///   * Tiled `covariance` matrix of `x_sample` and `y_sample`.
     ///   * `covariance_mode` of [`Mode`].

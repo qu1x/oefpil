@@ -111,6 +111,10 @@ void tiled_matrix_blockdiag_set_tile_diag(int n, int bn, double *A, int *tilemap
     if (B) {
         A_ = A + ii*n*n;
 
+        /* clear what a previous block tile left behind */
+        for (i = 0; i < n*n; i++)
+            A_[i] = 0.0;
+
         for (i = 0; i < n; i++)
             A_[i*n + i] = B[i];
 
@@ -176,11 +180,16 @@ void tiled_matrix_diags_set_tile_diag(int n, int bm, int bn, double *A, int *til
 void tiled_matrix_full_set_tile_diag(int n, int bm, int bn, double *A, int *tilemap,
                                       int ii, int jj, const double *B)
 {
-    int i;
+    int i, j;
     double *A_;
     
     if (B) {
         A_ = A + (jj*bm*n*n + ii*n);
+
+        /* clear what a previous block tile left behind */
+        for (j = 0; j < n; j++)
+            for (i = 0; i < n; i++)
+                A_[j*n*bm + i] = 0.0;
 
         for (i = 0; i < n; i++)
             A_[i*n*bm + i] = B[i];

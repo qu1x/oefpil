@@ -324,7 +324,7 @@ impl Algorithm {
         let mut report = Report {
             degrees_of_freedom: samples
                 .checked_sub(parameters)
-                .filter(|&dof| dof >= usize::from(!variable.covariance.unknown_scale))
+                .filter(|&dof| dof >= usize::from(variable.covariance.unknown_scale))
                 .ok_or(VariableError::InsufficientDegreesOfFreedom)?,
             ..Report::default()
         };
@@ -1490,7 +1490,7 @@ pub fn read_matrix(
         let line = lines.next().ok_or_else(|| {
             io::Error::new(
                 ErrorKind::InvalidData,
-                format!("expected {rows} row(s), found {} row(s)", row + 1),
+                format!("expected {rows} row(s), found {row} row(s)"),
             )
         })??;
         let mut words = line.split_whitespace();
@@ -1498,16 +1498,13 @@ pub fn read_matrix(
             let word = words.next().ok_or_else(|| {
                 io::Error::new(
                     ErrorKind::InvalidData,
-                    format!(
-                        "expected {columns} column(s), found {} column(s)",
-                        column + 1
-                    ),
+                    format!("expected {columns} column(s), found {column} column(s)"),
                 )
             })?;
             let field = if transpose {
                 column * rows + row
             } else {
-                row * rows + column
+                row * columns + column
             };
             matrix[field] = word
                 .parse()

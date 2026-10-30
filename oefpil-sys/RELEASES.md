@@ -10,6 +10,12 @@
         once if any is not finite.
       * Remove unconditional print of number of variables.
       * Fix out-of-bounds read when printing parameters if `OEFPIL_DEBUG` is defined.
+      * Fix segmentation fault if `OEFPIL_PRINTFORMAT` is defined. It is ignored unless it comprises
+        up to three digits followed by one of `eEfFgG`.
+      * Clear block tile when setting diagonal tile.
+  * Compute upper incomplete gamma function ratio directly in `dgami()` to keep its accuracy.
+  * Use `c_char` for `dpotrf()` and `dtrmv()` to support targets where it is unsigned.
+  * Correct documentation of `oefpil_tcm_full_set_tile_full()` which expects a column-major slice.
 
 # Version 0.3.1 (2025-10-16)
 

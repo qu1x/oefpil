@@ -13,6 +13,17 @@
     variance instead of zero, which yields the same estimates along with a finite chi-squared.
   * Return `AlgorithmError::NumericalError` as soon as a model evaluates to a non-finite value
     rather than possibly `AlgorithmError::IterationLimit`.
+  * Fix `Algorithm::fit()` requiring one degree of freedom for a fully known covariance matrix but
+    none for `Covariance::with_unknown_scale()` which yielded a NaN covariance matrix, as opposed to
+    what `VariableError::InsufficientDegreesOfFreedom` documents.
+  * Fix `read_matrix()` yielding wrong fields or panicking for non-square matrices without
+    `transpose` and fix the number of found rows and columns in its error messages.
+  * Fix `Covariance::set_tile()` keeping off-diagonal fields when replacing a block tile with a
+    diagonal tile.
+  * Fix `Report::chi_squared_p_value()` losing accuracy in the upper tail and yielding `0.0` for
+    small p-values.
+  * Fix segmentation fault if `OEFPIL_PRINTFORMAT` is defined. It is ignored unless it comprises up
+    to three digits followed by one of `eEfFgG`.
   * Bump `oefpil-sys`.
 
 # Version 0.3.1 (2025-10-16)
