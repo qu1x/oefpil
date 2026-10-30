@@ -18,6 +18,8 @@
 // #elif defined(__GNUC__) || defined(__GNUG__)
 #if defined(__GNUC__) || defined(__GNUG__)
 
+
+/* TODO: look whether https://github.com/Reference-LAPACK/lapack/pull/1025/commits/6cd9d27cd56ddabd967505a0a6740ffec8aa8b9f might help */
 #if (__GNUC__ > 7)
 typedef size_t f_char_len;
 #else

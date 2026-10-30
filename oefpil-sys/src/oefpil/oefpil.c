@@ -328,7 +328,11 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
 
     bool debug;
 
-    
+    if (!rptfile) {
+        printlevel = 0;
+    }
+
+
     /* ENVIRONMENT VARIABLES */
     
     debug = false;
@@ -376,8 +380,6 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
         break;
     }
     
-    if (!rptfile)
-	printlevel = 0;
     
     if (printlevel > 0) {
 	fprintf(rptfile, "### OEFPIL begin ###" "\n");
@@ -416,9 +418,11 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     
     iter_num = 0;
 
+//  printmatrix(rptfile, n, nve, K, dblprintformat, "* K matrix *", MATRIX_PRINT_FULL);
     if (debug) {
         tiled_matrix_debug(iter_num, "K", nve, nve, n, K, tiling, dblprintformat, MATRIX_PRINT_FULL);
         matrix_debug(iter_num, "x", n, nv, x, dblprintformat, MATRIX_PRINT_FULL);
+        matrix_debug(iter_num, "p", n, 1, p, dblprintformat, MATRIX_PRINT_FULL);
 
         if (fun_mode == FUNCTION_EXPLICIT)
             matrix_debug(iter_num, "y", n, 1, y, dblprintformat, MATRIX_PRINT_FULL);
@@ -430,6 +434,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     wf = (double*)malloc(n * sizeof(double));
     b = (double*)malloc(n * sizeof(double));
 
+    fprintf(rptfile,"n %d nve %d \n", nv ,nve);
     B1_diags = (double*)malloc(n*nve * sizeof(double));
     wx = (double*)malloc(n*nve * sizeof(double));
     xdiff = (double*)malloc(n*nve * sizeof(double));
@@ -487,6 +492,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
             LK[i] = K[i];
 
         dpotrf("L", nve*n, LK, nve*n, &lpkinfo);
+	printmatrix(rptfile, nve*n, nve*n, LK, dblprintformat, "** Cholesky decomposition of covariance matrix **" "\n", MATRIX_PRINT_FULL);
         break;
 
     case TILING_DIAG:
@@ -559,8 +565,10 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
         if (printlevel > 2)
             fprintf(rptfile, "** iteration %d begin **" "\n\n", iter_num);
 
-        if (debug)
+        if (debug){
             matrix_debug(iter_num, "wx", n, nve, wx, dblprintformat, MATRIX_PRINT_FULL);
+            matrix_debug(iter_num, "wp", n, 1, p, dblprintformat, MATRIX_PRINT_FULL);
+	}
 
         fcn(data, n, wx, p, wf, B1_diags, B2);
         check_inf_nan(n, wf, "function values", &status);
@@ -587,6 +595,14 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
             matrix_debug(iter_num, "B2", n, np, B2, dblprintformat, MATRIX_PRINT_FULL);
         }
 
+//	fprintf(rptfile, "printlevel %d \n", printlevel);
+	if (printlevel > 3){
+		printmatrix(rptfile, n, nve, wx, dblprintformat, "** wax **" "\n", MATRIX_PRINT_FULL);
+		printmatrix(rptfile, np, 1, p, dblprintformat, "** wp **" "\n", MATRIX_PRINT_FULL);
+		printmatrix(rptfile, n,nve, B1_diags, dblprintformat, "** B1 **" "\n", MATRIX_PRINT_FULL);
+		printmatrix(rptfile, n, np, B2, dblprintformat, "** B2 **" "\n", MATRIX_PRINT_FULL);
+	}
+
         /* M11(n, n) = B1(n, nve*n) * U(nve*n, nve*n) * B1^T(nve*n, n) */
         /* M11 = B11 * Kxx * B11 + B11 * Kxy * B12 + B12 * Kyx * B11 + B12 * Kyy * B12 */
         /* Cholesky M11 = LM LM^T */
@@ -595,7 +611,56 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
         switch (tiling) {
 
 	case TILING_NOTILES:
-	    /* TODO */
+            for (i = 0; i < n*n; i++)
+                M11[i] = 0.0;
+
+            if (tiling == TILING_BLOCKDIAG)
+                for (ii = 0; ii < nve; ii++) {
+                    B1_ii = B1_diags + ii*n;
+                    K_ = K + ii*(n*n);
+
+                    for (j = 0; j < n; j++)
+                        for (i = 0; i < n; i++)
+                            M11[j*n + i] += B1_ii[i] * K_[j*n + i] * B1_ii[j];
+                }
+            else /* tiling == TILING_FULL */
+                for (jj = 0; jj < nve; jj++)
+                    for (ii = 0; ii < nve; ii++){
+                        if (tilemap[jj*nve + ii] != TILE_NULL) {
+                            B1_ii = B1_diags + ii*n;
+                            B1_jj = B1_diags + jj*n;
+                            K_ = K + (jj*nve*n*n + ii*n) ;
+                        
+                            for (j = 0; j < n; j++)
+                                for (i = 0; i < n; i++)
+                                    M11[j*n + i] += B1_ii[i] * K_[j*n*nve + i] * B1_jj[j];
+                        }
+                    }
+
+            if (debug)
+                matrix_debug(iter_num, "M11", n, n, M11, dblprintformat, MATRIX_PRINT_LOWER);
+
+            /* Cholesky in-place */
+            dpotrf("L", n, M11, n, &lpkinfo);
+            /* M11 now contains just the factor LM */
+            
+            if (lpkinfo != 0) {
+                status = OEFPIL_ERROR_LAPACK;
+                lpkerrsrc = "DPOTRF(M11)";
+                break;
+            }
+
+            if (debug)
+                matrix_debug(iter_num, "LM_triang", n, n, LM, dblprintformat, MATRIX_PRINT_LOWER);
+
+            /* E */
+            dtrsm("L", "L", "N", "N", n, np, 1.0, LM, n, B2, n);
+            /* B2 now contains the solution, E */
+
+            if (debug)
+                matrix_debug(iter_num, "E", n, np, B2, dblprintformat, MATRIX_PRINT_FULL);
+            break; /* end case TILING_BLOCKDIAG, TILING_FULL */
+
 	    break;
 
         case TILING_DIAG:
