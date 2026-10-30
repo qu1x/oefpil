@@ -27,6 +27,7 @@
   * Return `OefpilError::TryFromInt` instead of corrupting memory if the size of a matrix exceeds
     what the C library can address.
   * Close custom `Logfile` on conversion errors and adhere to aliasing rules in `Algorithm::fit()`.
+  * Return `OefpilError::Io` instead of panicking if the path of a custom `Logfile` has a NUL byte.
   * Correct documentation (e.g., definition of `Report::chi_squared`, aborting panics in models).
   * Bump `oefpil-sys`.
 

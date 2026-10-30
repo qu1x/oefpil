@@ -6,7 +6,12 @@ use oefpil::{
     Algorithm, Covariance, Logfile, Model, OefpilError, Parameter, Report, Variable, VariableError,
     read_matrix,
 };
-use std::{fs, io::ErrorKind, path::PathBuf, process};
+use std::{
+    fs,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+    process,
+};
 
 const LINE: Model = Model {
     fx: |x, p| p[0] + p[1] * x[0],
@@ -207,5 +212,29 @@ fn p_value_is_accurate_in_upper_tail() -> Result<(), OefpilError> {
         ..Report::default()
     };
     assert_eq!(0.0, report.chi_squared_p_value()?);
+    Ok(())
+}
+
+#[test]
+fn logfile_path_with_nul_byte_is_error() -> Result<(), OefpilError> {
+    let covariance = diagonal(4)?;
+    let result = Algorithm::default().fit(
+        LINE,
+        &mut Variable {
+            sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+            mean: &mut [],
+            covariance: &covariance,
+        },
+        &mut Parameter {
+            mean: &mut [0.9, 2.1],
+            covariance: &mut [0f64; 4],
+            ..Parameter::default()
+        },
+        Logfile::Custom(Path::new("log\0file")),
+    );
+    let Err(OefpilError::Io(error)) = result else {
+        panic!("expected I/O error");
+    };
+    assert_eq!(ErrorKind::InvalidInput, error.kind());
     Ok(())
 }

@@ -455,7 +455,7 @@ impl<'a> Logfile<'a> {
                 Self::StdOut => Ok(stdout_file()),
                 Self::StdErr => Ok(stderr_file()),
                 Self::Custom(path) => {
-                    let path = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+                    let path = CString::new(path.as_os_str().as_encoded_bytes())?;
                     let file = fopen(path.as_c_str().as_ptr(), c"w".as_ptr());
                     if file.is_null() {
                         Err(io::Error::last_os_error())
