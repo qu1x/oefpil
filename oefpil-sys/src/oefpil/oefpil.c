@@ -422,7 +422,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     if (debug) {
         tiled_matrix_debug(iter_num, "K", nve, nve, n, K, tiling, dblprintformat, MATRIX_PRINT_FULL);
         matrix_debug(iter_num, "x", n, nv, x, dblprintformat, MATRIX_PRINT_FULL);
-        matrix_debug(iter_num, "p", n, 1, p, dblprintformat, MATRIX_PRINT_FULL);
+        matrix_debug(iter_num, "p", np, 1, p, dblprintformat, MATRIX_PRINT_FULL);
 
         if (fun_mode == FUNCTION_EXPLICIT)
             matrix_debug(iter_num, "y", n, 1, y, dblprintformat, MATRIX_PRINT_FULL);
@@ -434,7 +434,6 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     wf = (double*)malloc(n * sizeof(double));
     b = (double*)malloc(n * sizeof(double));
 
-    fprintf(rptfile,"n %d nve %d \n", nv ,nve);
     B1_diags = (double*)malloc(n*nve * sizeof(double));
     wx = (double*)malloc(n*nve * sizeof(double));
     xdiff = (double*)malloc(n*nve * sizeof(double));
@@ -567,7 +566,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
 
         if (debug){
             matrix_debug(iter_num, "wx", n, nve, wx, dblprintformat, MATRIX_PRINT_FULL);
-            matrix_debug(iter_num, "wp", n, 1, p, dblprintformat, MATRIX_PRINT_FULL);
+            matrix_debug(iter_num, "wp", np, 1, p, dblprintformat, MATRIX_PRINT_FULL);
 	}
 
         fcn(data, n, wx, p, wf, B1_diags, B2);
