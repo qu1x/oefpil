@@ -385,6 +385,9 @@ void dpottrf_blockdiag(int n, int bn, double *a, const int *tma, int *info)
     for (ii = 0; ii < bn; ii++) {
         a_ = a + ii*(n*n);
         dpotrf("L", n, a_, n, info);
+
+        if (*info != 0)
+            return;
     }
 }
 

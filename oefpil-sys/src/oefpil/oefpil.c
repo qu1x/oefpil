@@ -170,7 +170,7 @@ static void check_inf_nan(int n, const double *a, const char *where, enum oefpil
 	}
 	
 	i++;
-    } while ((status == OEFPIL_STATUS_OK) && (i < n));
+    } while ((*status == OEFPIL_STATUS_OK) && (i < n));
 }
 
 
@@ -322,7 +322,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
     
     double *LK = NULL;
     int *tilemapLK = NULL;
-    double chi2_, chi2prev = 0;
+    double chi2_ = NAN, chi2prev = 0;
     double pchi2, qchi2;
     long ierr;
 
@@ -573,6 +573,10 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
         check_inf_nan(n, wf, "function values", &status);
         check_inf_nan(n*nv, B1_diags, "function derivatives", &status);
         check_inf_nan(n*np, B2, "function parameter derivatives", &status);
+
+        /* break the loop when not finite, otherwise status would be overwritten below */
+        if (status != OEFPIL_STATUS_OK)
+            break;
         
         if (fun_mode == FUNCTION_EXPLICIT) {
             /* b(n) = (f(x) - y) */

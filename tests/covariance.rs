@@ -399,3 +399,133 @@ fn decomposition_of_three_variables() -> Result<(), OefpilError> {
     covariance.with_decomposition()?;
     Ok(())
 }
+
+#[test]
+fn asymmetric_tile_among_variables_is_row_major() -> Result<(), OefpilError> {
+    let covariance = Covariance::new_full(2, 2)
+        .with_tile(0, 0, &[1.0, 0.0, 0.0, 1.0])?
+        .with_tile(0, 1, &[0.1, 0.2, 0.3, 0.4])?
+        .with_tile(1, 1, &[1.0, 0.0, 0.0, 1.0])?;
+    let full = [
+        1.0, 0.0, 0.1, 0.2, //
+        0.0, 1.0, 0.3, 0.4, //
+        0.1, 0.3, 1.0, 0.0, //
+        0.2, 0.4, 0.0, 1.0, //
+    ];
+    assert_eq!(full, covariance.to_full().as_slice());
+    Ok(())
+}
+
+#[test]
+fn asymmetric_tile_among_variables_is_optimal() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    let covariance = tiled(Covariance::new_full(SAMPLES, 3), |r, c| {
+        let mut tile = block_tile(r, c, 0.3);
+        if r != c {
+            // Upper triangle of tile only, hence asymmetric.
+            for row in 0..SAMPLES {
+                for column in row + 1..SAMPLES {
+                    tile[row * SAMPLES + column] *= 0.5;
+                }
+            }
+        }
+        tile
+    })?;
+    let fit = fit(EXPLICIT, &v, &covariance, &[0.9, 2.1, -0.9])?;
+    assert_optimal(EXPLICIT, &v, &covariance, &fit);
+    Ok(())
+}
+
+#[test]
+fn not_finite_beyond_first_sample_is_numerical_error() -> Result<(), OefpilError> {
+    const THRESHOLD: f64 = 1.2;
+    const FX: Model = Model {
+        fx: |x, p| {
+            if x[0] > THRESHOLD {
+                f64::NAN
+            } else {
+                p[0] + p[1] * x[0] + p[2] * x[1]
+            }
+        },
+        ..EXPLICIT
+    };
+    const DFDX: Model = Model {
+        dfdx: &[
+            |x, p| {
+                if x[0] > THRESHOLD {
+                    f64::INFINITY
+                } else {
+                    p[1]
+                }
+            },
+            |_, p| p[2],
+        ],
+        ..EXPLICIT
+    };
+    const DFDP: Model = Model {
+        dfdp: &[
+            |x, _| if x[0] > THRESHOLD { f64::NAN } else { 1.0 },
+            |x, _| x[0],
+            |x, _| x[1],
+        ],
+        ..EXPLICIT
+    };
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    // First sample is finite, a later one is not.
+    assert!(v[0] <= THRESHOLD && v[..SAMPLES].iter().any(|&x| x > THRESHOLD));
+    let covariance = tiled(Covariance::new_diagonals(SAMPLES, 3), diagonal_tile)?;
+    // Stops at once rather than discovering it via the parameters in the next iteration, if any.
+    let oefpil = Algorithm {
+        iteration_limit: 1,
+        ..Algorithm::default()
+    };
+    for model in [FX, DFDX, DFDP] {
+        let result = oefpil.fit(
+            model,
+            &mut Variable {
+                sample: &v,
+                mean: &mut [],
+                covariance: &covariance,
+            },
+            &mut Parameter {
+                mean: &mut p.clone(),
+                covariance: &mut [0f64; 9],
+                ..Parameter::default()
+            },
+            Logfile::default(),
+        );
+        assert!(matches!(
+            result,
+            Err(OefpilError::Algorithm(AlgorithmError::NumericalError))
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn not_positive_definite_tile_before_last_is_numerical_error() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    let mut invalid = block_tile(0, 0, 0.3);
+    // Tile is indefinite on its own whereas `B1 K B1^T` remains positive definite.
+    invalid[1] = 1.2e-3;
+    invalid[SAMPLES] = 1.2e-3;
+    for variable in 0..2 {
+        let mut covariance = Covariance::new_block_diagonal(SAMPLES, 3);
+        for tile in 0..3 {
+            let fields = if tile == variable {
+                invalid.clone()
+            } else {
+                block_tile(tile, tile, 0.3)
+            };
+            covariance.set_tile(tile, tile, &fields)?;
+        }
+        assert!(matches!(
+            fit(EXPLICIT, &v, &covariance, &p),
+            Err(OefpilError::Algorithm(AlgorithmError::NumericalError))
+        ));
+    }
+    Ok(())
+}

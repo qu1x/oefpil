@@ -1014,13 +1014,14 @@ impl Covariance {
                     } else {
                         return Err(CovarianceError::MismatchingTile.into());
                     };
+                    // Swapped as C expects column-major `fields` whereas these are row-major.
                     oefpil_tcm_full_set_tile(
                         samples,
                         variables,
                         self.fields.as_mut_ptr(),
                         self.tiles.as_mut_ptr(),
-                        row,
                         column,
+                        row,
                         fields.as_ptr(),
                     );
                 }
