@@ -201,24 +201,15 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
 //!
-//! # Limitation
-//!
-//! Currently, constructing the [`Covariance`] matrix with correlations among variables (i.e., via
-//! [`Covariance::new_diagonals()`] or [`Covariance::new_full()`] is limited to $`|V|=2`$. This
-//! covers explicit univariate models $`V=(X^1,Y^1)`$ and implicit bivariate models $`V=(X^1,X^2)`$.
-//! In contrast, constructing the [`Covariance`] matrix with correlations within but not among
-//! variables (i.e., via [`Covariance::new_diagonal()`] or [`Covariance::new_block_diagonal()`]) is
-//! already supported for any number of variables $`|V|`$.
-//!
 //! # Roadmap
 //!
-//! Get rid of [limitation](#limitation). On the long run, this crate will provide a pure Rust
-//! implementation. The current Rust API won't necessarily need to change much. The [`oefpil-sys`]
-//! dependency will become optional. This will allow to compare both implementations. Currently, the
-//! [C/Fortran library] allocates working memory and its C API depends on the system type [`FILE`]
-//! defined in the C standard library. This might change though. The Rust implementation will work
-//! in [`no_std`] environments, probably by leveraging [`faer`] and [`dyn-stack`] internally. Not
-//! exposing them would allow a stable release sooner rather than later.
+//! On the long run, this crate will provide a pure Rust implementation. The current Rust API won't
+//! necessarily need to change much. The [`oefpil-sys`] dependency will become optional. This will
+//! allow to compare both implementations. Currently, the [C/Fortran library] allocates working
+//! memory and its C API depends on the system type [`FILE`] defined in the C standard library. This
+//! might change though. The Rust implementation will work in [`no_std`] environments, probably by
+//! leveraging [`faer`] and [`dyn-stack`] internally. Not exposing them would allow a stable release
+//! sooner rather than later.
 //!
 //! [`no_std`]: https://crates.io/categories/no-std
 //! [`faer`]: https://docs.rs/faer
@@ -816,7 +807,6 @@ impl Covariance {
     /// # Panics
     ///
     ///   * Asserts `samples` and `variables` to be non-zero.
-    ///   * Currently, the implementation is limited to `variables == 2` and will panic otherwise.
     ///
     /// # Example
     ///
@@ -844,10 +834,6 @@ impl Covariance {
     pub fn new_diagonals(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        assert_eq!(
-            variables, 2,
-            "currently only implemented for `variables == 2`"
-        );
         let tiles = vec![Mode::None as c_int; variables.pow(2)];
         let fields = vec![0.0; samples * variables.pow(2)];
         Self {
@@ -876,7 +862,6 @@ impl Covariance {
     /// # Panics
     ///
     ///   * Asserts `samples` and `variables` to be non-zero.
-    ///   * Currently, the implementation is limited to `variables == 2` and will panic otherwise.
     ///
     /// # Example
     ///
@@ -913,10 +898,6 @@ impl Covariance {
     pub fn new_full(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        assert_eq!(
-            variables, 2,
-            "currently only implemented for `variables == 2`"
-        );
         let tiles = vec![Mode::None as c_int; variables.pow(2)];
         let fields = vec![0.0; (samples * variables).pow(2)];
         Self {

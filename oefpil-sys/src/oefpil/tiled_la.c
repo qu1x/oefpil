@@ -352,7 +352,7 @@ void dgetmv_full(int n, int bm, int bn,
             switch (tma[jj*bm + ii]) {
             case TILE_DIAG:
                 for (i = 0; i < n; i++)
-                    y_[i] += alpha * a_[i*n + i] * x_[i];
+                    y_[i] += alpha * a_[i*n*bn + i] * x_[i];
                 break;
 
             case TILE_FULL:
@@ -388,100 +388,40 @@ void dpottrf_blockdiag(int n, int bn, double *a, const int *tma, int *info)
     }
 }
 
-/* only for bn = 2 !!! */
+/* tiles are diagonal: one independent bn x bn Cholesky per sample */
 void dpottrf_diags(int n, int bn, double *a, const int *tma, int *info)
 {
-    int i;
-    double *a_, *L_;
-
-    if (bn != 2)
-        printf("WARNING: dpottrf_diags not implemented for bn != 2" "\n");
-
-    /* L11: A11 = L11*L11^T */
-    a_ = a + 0;
-    
-    for (i = 0; i < n; i++)
-        a_[i] = sqrt(a_[i]);
-
-    /* L21: solve(X * L11^T = A21) */
-    L_ = a + 0;
-    a_ = a + 1*n;
-    
-    for (i = 0; i < n; i++)
-        a_[i] = a_[i] / L_[i];
-
-    /* L22: A22 - L21*L21^T = L22*L22^T */
-    L_ = a + 1*n;
-    a_ = a + 3*n;
-
-    for (i = 0; i < n; i++)
-        a_[i] = sqrt(a_[i] - L_[i]*L_[i]);
+    int i, ii, jj, kk;
+    double d;
 
     *info = 0;
+
+    for (i = 0; i < n; i++)
+        for (jj = 0; jj < bn; jj++)
+            for (ii = jj; ii < bn; ii++) {
+                d = a[(jj*bn + ii)*n + i];
+
+                for (kk = 0; kk < jj; kk++)
+                    d -= a[(kk*bn + ii)*n + i] * a[(kk*bn + jj)*n + i];
+
+                if (ii > jj) {
+                    a[(jj*bn + ii)*n + i] = d / a[(jj*bn + jj)*n + i];
+                }
+                else {
+                    if (!(d > 0.0)) { /* not positive definite, or NaN */
+                        *info = jj + 1;
+                        return;
+                    }
+
+                    a[(jj*bn + jj)*n + i] = sqrt(d);
+                }
+            }
 }
 
-/* only for bn = 2 !!! */
+/* full tiled matrix is stored as dense column-major matrix of order bn*n */
 void dpottrf_full(int n, int bn, double *a, const int *tma, int *info)
 {
-    int ii;
-    double *a_, *L_;
-    double *atmp1, *atmp2;
-    int i,j;
-
-
-    atmp1 = (double *)malloc(n*n*sizeof(double));
-    atmp2 = (double *)malloc(n*n*sizeof(double));
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           atmp1[i*n+j] = a[i*2*n+j];
-
-    if (bn != 2)
-        printf("WARNING: dpottrf_full not implemented for bn != 2" "\n");
-
-    /* L11: A11 = L11*L11^T */
- //   a_ = a + 0; /* A11 -> L11 */
-    
-    a_ = atmp1;
-    dpotrf("L", n, a_, n, info);
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           a[i*2*n+j] = atmp1[i*n+j];
-
-    /* L21: solve(X * L11^T = A21) */
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           atmp2[i*n+j] = a[i*2*n+j+n];
-    L_ = atmp1;
-//    L_ = a + 0; /* L11 */
-    //a_ = a + 1*(n*n); /* A21 -> L21 */
-
-    a_ = atmp2;
-
-    dtrsm("R", "L", "T", "N", n, n, 1.0 , L_, n, a_, n);
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           a[i*2*n+j+n] = atmp2[i*n+j];
-
-    /* L22: A22 - L21*L21^T = L22*L22^T */
- //   L_ = a + 1*(n*n); /* L21 */
-  //  a_ = a + 3*(n*n); /* A22 -> L22 */
-      L_ = atmp2;
-
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           atmp1[i*n+j] = a[(i+n)*2*n+j+n];
-
-    a_ = atmp1;
-
-    dsyrk("L", "N", n, n, -1.0, L_, n, 1.0, a_, n);
-    dpotrf("L", n, a_, n, info);
-
-    for (i=0;i< n; i++)
-       for (j=0;j<n; j++)
-           a[(i+n)*2*n+j+n] = atmp1[i*n+j];
-
-    free(atmp1);
-    free(atmp2);
+    dpotrf("L", bn*n, a, bn*n, info);
 }
 
 void dtrtsv_diag(int n, int bn, const double *a, const int *tma, double *b, int *info)
@@ -510,99 +450,31 @@ void dtrtsv_blockdiag(int n, int bn, const double *a, const int *tma, double *b,
     *info = 0;
 }
 
-/* only for bn = 2 !!! */
+/* tiles are diagonal: one independent bn x bn forward substitution per sample */
 void dtrtsv_diags(int n, int bn, const double *a, const int *tma, double *b, int *info)
 {
     int i, ii, jj;
-    const double *a_, *x_;
-    double *b_;
-
-    if (bn != 2)
-        printf("WARNING: dpotrsv_full not implemented for bn != 2" "\n");
-
-    /* x1: solve(A11*x1 = b1) */
-    a_ = a + 0;
-    b_ = b + 0;
-    
-    for (i = 0; i < n; i++)
-        b_[i] = b_[i] / a_[i];
-
-    /* b2 = b2 - A21*x1 */
-    a_ = a + 1*n;
-    x_ = b + 0*n; /* b1 = x1 */
-    b_ = b + 1*n;
+    double d;
 
     for (i = 0; i < n; i++)
-	b_[i] = b_[i] - a_[i]*x_[i];
+        for (ii = 0; ii < bn; ii++) {
+            d = b[ii*n + i];
 
-    /* x2: solve(A22*x2 = b2) */
-    a_ = a + 3*n;
-    b_ = b + 1*n;
-    
-    for (i = 0; i < n; i++)
-        b_[i] = b_[i] / a_[i];
+            for (jj = 0; jj < ii; jj++)
+                d -= a[(jj*bn + ii)*n + i] * b[jj*n + i];
+
+            b[ii*n + i] = d / a[(ii*bn + ii)*n + i];
+        }
 
     *info = 0;
 }
 
-/* only for bn = 2 !!! */
+/* full tiled matrix is stored as dense column-major matrix of order bn*n */
 void dtrtsv_full(int n, int bn, const double *a, const int *tma, double *b, int *info)
 {
-    int i, ii, jj;
-    const double *a_, *x_;
-    double *atmp, *btmp;
-    double *b_;
-
-    if (bn != 2)
-        printf("WARNING: dpotrtsv_diags not implemented for bn != 2" "\n");
-
-    atmp = (double *)malloc(n*n*sizeof(double));
-    btmp = (double *)malloc(n*sizeof(double));
-
-    /* x1: solve(A11*x1 = b1) */
-
-    //a_ = a + 0;
-    //b_ = b + 0;
-    b_ = b;
-    for (ii =0;ii < n; ii++)
-        for (jj =0; jj<n ; jj++)
-                atmp[ii*n+jj] = a[ii*2*n +jj];
-
-    a_ = atmp;
-    dtrsv("L", "N", "N", n, a_, n, b_, 1);
-    
-    /* b2 = b2 - A21*x1 */
-
-    //a_ = a + 1*(n*n);
-    //x_ = b + 0*n; /* b1 = x1 */
-    //b_ = b + 1*n;
-
-    for (ii =0;ii < n; ii++)
-        btmp[ii] = b[ii];
-
-    for (ii =0;ii < n; ii++)
-        for (jj =0; jj<n ; jj++)
-            atmp[ii*n+jj] = a[ii*2*n +jj+n];
-
-    a_ = atmp;   
-    x_ = btmp;
-    b_ = b +n;
-
-    dgemv("N", n, n, -1.0 , a_, n, x_, 1, 1.0, b_, 1);
-
-    /* x2: solve(A22*x2 = b2) */
-    //a_ = a + 3*(n*n);
-   // b_ = b + 1*n;
-    for (ii =0;ii < n; ii++)
-        for (jj =0; jj<n ; jj++)
-            atmp[ii*n+jj] = a[(ii+n)*2*n +jj+n];
-    a_ = atmp;        
-    b_ = b+n;        
-    dtrsv("L", "N", "N", n, a_, n, b_, 1);
+    dtrsv("L", "N", "N", bn*n, a, bn*n, b, 1);
 
     *info = 0;
-    free(atmp);
-    free(btmp);
 }
 
 /* symmetric tiled matrix X tiled vector */
