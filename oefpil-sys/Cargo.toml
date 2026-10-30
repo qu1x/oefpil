@@ -43,10 +43,10 @@ cc = "1.2.41"
 bindgen = { version = "0.72.1", optional = true }
 
 [lints.rust]
-missing-docs = "forbid"
+missing_docs = "forbid"
 
 [lints.rustdoc]
-broken-intra-doc-links = "forbid"
+broken_intra_doc_links = "forbid"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

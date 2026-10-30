@@ -52,10 +52,10 @@ rand_chacha = "0.9.0"
 const-hex = "1.14.1"
 
 [lints.rust]
-missing-docs = "forbid"
+missing_docs = "forbid"
 
 [lints.rustdoc]
-broken-intra-doc-links = "forbid"
+broken_intra_doc_links = "forbid"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
