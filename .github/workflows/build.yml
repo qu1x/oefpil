@@ -36,6 +36,21 @@ jobs:
       run: cargo doc
     - name: fmt
       run: cargo fmt --check
+  aarch64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: dependencies
+      run: |
+        sudo apt update
+        sudo apt install liblapack-dev gcc
+    - name: test
+      run: cargo test --features random
+    - name: run
+      run: cargo run --example sine --features random
   all-features:
     runs-on: ubuntu-latest
     steps:
