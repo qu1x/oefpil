@@ -32,9 +32,9 @@
 //! [`Criterion`], log [`Verbosity`], log [`FILE`] (e.g., [`stdout_file`], [`stderr_file`]), and a
 //! covariance matrix tiled by variables. Among its data fields, a tiled covariance matrix (TCM)
 //! comprises metadata about its tilemap and tiling [`Mode`]. The tilemap encodes via
-//! [`Mode::Diagonal`] or [`Mode::Full`] which tiles are diagonal or block tiles. The number of
-//! `samples` and `variables` define the number of fields per tile and the number of tiles per
-//! covariance matrix. A diagonal tile stores `samples` fields whereas a block tile stores
+//! [`Mode::Diagonal`] or [`Mode::BlockDiagonal`] which tiles are diagonal or block tiles. The
+//! number of `samples` and `variables` define the number of fields per tile and the number of tiles
+//! per covariance matrix. A diagonal tile stores `samples` fields whereas a block tile stores
 //! `samples.pow(2)` fields. The tiling mode encodes where the tiles are and whether their mode is
 //! restricted to be diagonal. For each tiling mode, there are different sets of methods for
 //! allocating the tilemap and the data fields and for setting the data fields per tile.
@@ -99,7 +99,7 @@ pub type Evaluate = Option<
 ///
 ///   * [`Self::None`] for an unset tile,
 ///   * [`Self::Diagonal`] for a diagonal tile, and
-///   * [`Self::Full`] for a block tile.
+///   * [`Self::BlockDiagonal`] for a block tile.
 ///
 /// Default is [`Self::None`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -109,11 +109,12 @@ pub enum Mode {
     None = 0,
     /// Mode of covariance matrix with diagonal tiles on its diagonal (or mode of diagonal tile).
     Diagonal = 1,
-    /// Mode of covariance matrix with diagonal or block tiles on its diagonal.
+    /// Mode of covariance matrix with diagonal or block tiles on its diagonal (or mode of block
+    /// tile).
     BlockDiagonal = 2,
     /// Mode of covariance matrix with diagonal tiles all over.
     Diagonals = 3,
-    /// Mode of covariance matrix with diagonal or block tiles all over (or mode of block tile).
+    /// Mode of covariance matrix with diagonal or block tiles all over.
     Full = 4,
 }
 

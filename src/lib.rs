@@ -300,19 +300,21 @@ impl Algorithm {
         let samples = variable.covariance.samples;
         let parameters = parameter.mean.len();
         let x_fields = samples * x_variables;
-        let mut x_mean;
-        let mut y_mean;
-        let x_mean = if variable.mean.is_empty() {
-            x_mean = variable.sample[..x_fields].to_vec();
-            x_mean.as_mut_ptr()
+        let covariance = variable.covariance;
+        validate_sizes(
+            covariance.fields.len(),
+            samples,
+            covariance.variables,
+            parameters,
+        )?;
+        let mut x_sample_mean;
+        let mut y_sample_mean;
+        let (x_mean, y_mean): (&mut [f64], &mut [f64]) = if variable.mean.is_empty() {
+            x_sample_mean = variable.sample[..x_fields].to_vec();
+            y_sample_mean = variable.sample[x_fields..].to_vec();
+            (&mut x_sample_mean, &mut y_sample_mean)
         } else {
-            variable.mean.as_mut_ptr()
-        };
-        let y_mean = if variable.mean.is_empty() {
-            y_mean = variable.sample[x_fields..].to_vec();
-            y_mean.as_mut_ptr()
-        } else {
-            variable.mean[x_fields..].as_mut_ptr()
+            variable.mean.split_at_mut(x_fields)
         };
         let evaluate: Evaluate = Some(evaluate);
         let mut data = Data {
@@ -328,25 +330,30 @@ impl Algorithm {
                 .ok_or(VariableError::InsufficientDegreesOfFreedom)?,
             ..Report::default()
         };
+        let c_parameters = parameters.try_into()?;
+        let c_samples = samples.try_into()?;
+        let c_x_variables = x_variables.try_into()?;
+        let c_iteration_limit = self.iteration_limit.try_into()?;
         unsafe {
             let file = logfile.open()?;
             oefpil(
                 evaluate,
                 ptr::from_mut(&mut data).cast(),
                 model.implicit.into(),
-                parameters.try_into()?,
+                c_parameters,
                 parameter.mean.as_mut_ptr(),
                 parameter.covariance.as_mut_ptr(),
-                samples.try_into()?,
-                x_variables.try_into()?,
-                variable.sample[..x_fields].as_ptr(),
+                c_samples,
+                c_x_variables,
+                // C library reads dependent samples through this pointer as well.
+                variable.sample.as_ptr(),
                 variable.sample[x_fields..].as_ptr(),
-                x_mean,
-                y_mean,
+                x_mean.as_mut_ptr(),
+                y_mean.as_mut_ptr(),
                 variable.covariance.fields.as_ptr(),
                 variable.covariance.mode as c_int,
                 variable.covariance.tiles.as_ptr(),
-                self.iteration_limit.try_into()?,
+                c_iteration_limit,
                 self.tolerance,
                 self.verbosity as i32,
                 file,
@@ -368,21 +375,7 @@ impl Algorithm {
             }
         };
         report.iterations = iterations.try_into()?;
-        if !parameter.deviation.is_empty() {
-            for row_column in 0..parameters {
-                let diagonal = row_column * parameters + row_column;
-                parameter.deviation[row_column] = parameter.covariance[diagonal].sqrt();
-            }
-        }
-        if !parameter.correlation.is_empty() {
-            for row in 0..parameters {
-                for column in 0..parameters {
-                    let field = row * parameters + column;
-                    parameter.correlation[field] = parameter.covariance[field]
-                        / (parameter.deviation[row] * parameter.deviation[column]);
-                }
-            }
-        }
+        parameter.derive_from_covariance();
         match info {
             1 => Ok(report),
             2 => Err(AlgorithmError::IterationLimit.into()),
@@ -390,6 +383,19 @@ impl Algorithm {
             _ => unreachable!("unknown error"),
         }
     }
+}
+
+/// Ensures the products of sizes computed by the C library fit into its [`c_int`].
+fn validate_sizes(
+    fields: usize,
+    samples: usize,
+    variables: usize,
+    parameters: usize,
+) -> Result<(), TryFromIntError> {
+    for size in [fields, samples * variables, samples * parameters] {
+        c_int::try_from(size)?;
+    }
+    Ok(())
 }
 
 struct Data<'a> {
@@ -503,6 +509,8 @@ impl Model<'_> {
 }
 
 /// Mathematical expression in independent variables `x` and parameters `p`.
+///
+/// A panic aborts the process as it cannot unwind through the C library.
 pub type Expression = fn(x: &[f64], p: &[f64]) -> f64;
 
 /// Distribution comprising sample matrix $`v`$, sample mean matrix $`\mu`$, and sample
@@ -940,6 +948,7 @@ impl Covariance {
             if !(row < self.variables && column < self.variables) {
                 return Err(CovarianceError::OutOfBoundTileIndex.into());
             }
+            c_int::try_from(self.fields.len())?;
             let samples = i32::try_from(self.samples)?;
             let variables = i32::try_from(self.variables)?;
             let row = i32::try_from(row)?;
@@ -1220,6 +1229,25 @@ pub struct Parameter<'a> {
 }
 
 impl Parameter<'_> {
+    /// Computes non-empty [`Self::deviation`] and [`Self::correlation`] from [`Self::covariance`].
+    fn derive_from_covariance(&mut self) {
+        let parameters = self.mean.len();
+        if !self.deviation.is_empty() {
+            for row_column in 0..parameters {
+                let diagonal = row_column * parameters + row_column;
+                self.deviation[row_column] = self.covariance[diagonal].sqrt();
+            }
+        }
+        if !self.correlation.is_empty() {
+            for row in 0..parameters {
+                for column in 0..parameters {
+                    let field = row * parameters + column;
+                    self.correlation[field] =
+                        self.covariance[field] / (self.deviation[row] * self.deviation[column]);
+                }
+            }
+        }
+    }
     /// Ensures slice lengths agree with `model`.
     ///
     /// Called in [`Algorithm::fit()`].
@@ -1250,9 +1278,11 @@ impl Parameter<'_> {
 /// Fitting report on success.
 #[derive(Debug, Clone, Copy)]
 pub struct Report {
-    /// $`\chi^2\equiv\sum_{I,i} (v^I_i-\hat\mu^I_i)^2`$
+    /// $`\gdef\c#1#2{\textup{Cov}(#1,#2)}\chi^2\equiv(v-\hat\mu)^T\c{V}{V}^{-1}(v-\hat\mu)`$
     pub chi_squared: f64,
     /// $`\chi^2_\nu\equiv\chi^2/\nu`$
+    ///
+    /// Not finite if $`\nu=0`$, which is valid for a fully known [`Covariance`].
     ///
     /// # Validity
     ///
@@ -1291,7 +1321,7 @@ impl Report {
     ///
     /// # Errors
     ///
-    /// Returns [`OefpilError`] on failure.
+    /// Returns [`OefpilError`] on failure, in particular if $`\nu=0`$ for which it is undefined.
     pub fn chi_squared_p_value(&self) -> Result<f64, OefpilError> {
         let mut p = f64::NAN;
         let mut q = f64::NAN;
@@ -1330,8 +1360,10 @@ pub enum OefpilError {
     /// I/O error.
     #[display("I/O error")]
     Io(#[error(source)] io::Error),
-    /// Conversation error between [`usize`] and [`i32`].
-    #[display("conversation error")]
+    /// Conversion error between [`usize`] and [`i32`].
+    ///
+    /// Also returned when the size of a matrix exceeds what the C library can address.
+    #[display("conversion error")]
     TryFromInt(#[error(source)] TryFromIntError),
     /// Invalid model.
     #[display("invalid model")]
@@ -1411,7 +1443,7 @@ pub enum DistributionError {
     MissingDecomposition,
 }
 
-/// Model errors.
+/// Covariance errors.
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum CovarianceError {
@@ -1429,7 +1461,7 @@ pub enum CovarianceError {
     AsymmetricTile,
 }
 
-/// Model errors.
+/// Parameter errors.
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum ParameterError {
@@ -1524,4 +1556,21 @@ pub fn read_matrix(
         ))?;
     }
     Ok(matrix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_sizes;
+
+    #[test]
+    fn sizes_must_fit_into_c_int() {
+        let max = usize::try_from(i32::MAX).unwrap();
+        assert!(validate_sizes(max, 1, 1, 1).is_ok());
+        assert!(validate_sizes(max + 1, 1, 1, 1).is_err());
+        // 46341 is the first number of samples whose square does not fit.
+        assert!(validate_sizes(46_340usize.pow(2), 46_340, 1, 1).is_ok());
+        assert!(validate_sizes(46_341usize.pow(2), 46_341, 1, 1).is_err());
+        assert!(validate_sizes(1, 46_341, 46_341, 1).is_err());
+        assert!(validate_sizes(1, 46_341, 1, 46_341).is_err());
+    }
 }

@@ -16,6 +16,7 @@
   * Compute upper incomplete gamma function ratio directly in `dgami()` to keep its accuracy.
   * Use `c_char` for `dpotrf()` and `dtrmv()` to support targets where it is unsigned.
   * Correct documentation of `oefpil_tcm_full_set_tile_full()` which expects a column-major slice.
+  * Correct documentation of `Mode` where `Mode::BlockDiagonal` encodes a block tile.
 
 # Version 0.3.1 (2025-10-16)
 

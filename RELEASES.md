@@ -24,6 +24,10 @@
     small p-values.
   * Fix segmentation fault if `OEFPIL_PRINTFORMAT` is defined. It is ignored unless it comprises up
     to three digits followed by one of `eEfFgG`.
+  * Return `OefpilError::TryFromInt` instead of corrupting memory if the size of a matrix exceeds
+    what the C library can address.
+  * Close custom `Logfile` on conversion errors and adhere to aliasing rules in `Algorithm::fit()`.
+  * Correct documentation (e.g., definition of `Report::chi_squared`, aborting panics in models).
   * Bump `oefpil-sys`.
 
 # Version 0.3.1 (2025-10-16)
