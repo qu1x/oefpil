@@ -529,3 +529,26 @@ fn not_positive_definite_tile_before_last_is_numerical_error() -> Result<(), Oef
     }
     Ok(())
 }
+
+#[test]
+fn not_positive_variance_of_diagonal_is_numerical_error() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    for variance in [0.0, -1e-3, f64::NAN] {
+        for variable in 0..3 {
+            let mut covariance = Covariance::new_diagonal(SAMPLES, 3);
+            for tile in 0..3 {
+                let mut fields = diagonal_tile(tile, tile);
+                if tile == variable {
+                    fields[SAMPLES / 2] = variance;
+                }
+                covariance.set_tile(tile, tile, &fields)?;
+            }
+            assert!(matches!(
+                fit(EXPLICIT, &v, &covariance, &p),
+                Err(OefpilError::Algorithm(AlgorithmError::NumericalError))
+            ));
+        }
+    }
+    Ok(())
+}

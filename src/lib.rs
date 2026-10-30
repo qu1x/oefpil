@@ -191,7 +191,7 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!
 //!   1. Ensure all inputs satisfy [`f64::is_finite()`].
 //!   2. Ensure all diagonal fields of the sample covariance matrix $`\c{V}{V}`$ are neither
-//!      negative nor zero.
+//!      negative nor zero. For a variable without errors, use a tiny positive variance.
 //!   3. Ensure to pass (co)variances and not standard deviations to [`Covariance::set_tile()`].
 //!   4. Improve the initial estimate of the parameter mean vector $`\lambda`$.
 //!   5. Improve the estimate of the sample covariance matrix $`\c{V}{V}`$. For a diagonal

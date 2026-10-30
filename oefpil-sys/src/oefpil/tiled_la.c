@@ -371,10 +371,16 @@ void dpottrf_diag(int n, int bn, double *a, const int *tma, int *info)
 {
     int i;
 
-    for (i = 0; i < bn * n; i++)
-        a[i] = sqrt(a[i]);
-
     *info = 0;
+
+    for (i = 0; i < bn * n; i++) {
+        if (!(a[i] > 0.0)) { /* not positive definite, or NaN */
+            *info = i + 1;
+            return;
+        }
+
+        a[i] = sqrt(a[i]);
+    }
 }
 
 void dpottrf_blockdiag(int n, int bn, double *a, const int *tma, int *info)
