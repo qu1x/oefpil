@@ -2,6 +2,7 @@
 
 #![allow(
     clippy::cast_precision_loss,
+    clippy::float_cmp,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::suboptimal_flops

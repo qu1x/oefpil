@@ -1,4 +1,4 @@
-# Version 0.4.0 (unreleased)
+# Version 0.4.0 (2026-10-31)
 
   * Support correlations among any number of variables via `Covariance::new_diagonals()` and
     `Covariance::new_full()`, which no longer panic if `variables != 2`.

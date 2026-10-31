@@ -275,7 +275,7 @@ fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
 /// Reference values are exact p-values of closed forms evaluated with 80 decimal digits, which exist
 /// as `nu / 2` is an integer or half-integer.
 #[test]
-#[allow(clippy::unreadable_literal)]
+#[allow(clippy::excessive_precision, clippy::unreadable_literal)]
 fn dcdchi_agrees_with_exact_values() {
     #[rustfmt::skip]
     let table = [

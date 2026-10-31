@@ -1,6 +1,6 @@
 [package]
 name = "oefpil-sys"
-version = "0.3.1"
+version = "0.4.0"
 rust-version = "1.85.0"
 edition = "2024"
 links = "oefpil"
@@ -8,7 +8,7 @@ description = "Rust FFI bindings to statically linked C/Fortran library OEFPIL"
 documentation = "https://docs.rs/oefpil-sys"
 repository = "https://github.com/qu1x/oefpil"
 authors = ["Rouven Spreckels <rs@qu1x.dev>"]
-license = "MIT OR Apache-2.0"
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
 keywords = [
 	"function-fitting",
 	"nonlinear-regression",

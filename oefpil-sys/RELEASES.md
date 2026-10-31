@@ -1,4 +1,4 @@
-# Version 0.4.0 (unreleased)
+# Version 0.4.0 (2026-10-31)
 
   * Import respective sources of OEFPIL [307ee4c] into [src] and patch them as follows:
       * Generalize `dpottrf_diags()`, `dpottrf_full()`, `dtrtsv_diags()`, and `dtrtsv_full()` to any
@@ -22,6 +22,7 @@
   * Use `c_char` for `dpotrf()` and `dtrmv()` to support targets where it is unsigned.
   * Correct documentation of `oefpil_tcm_full_set_tile_full()` which expects a column-major slice.
   * Correct documentation of `Mode` where `Mode::BlockDiagonal` encodes a block tile.
+  * State `BSD-3-Clause` of the imported LAPACK in `license` metadata.
 
 # Version 0.3.1 (2025-10-16)
 
