@@ -9,37 +9,35 @@
 )]
 
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Criterion, Discard, Model, OefpilError, Parameter,
-    Report, Variable,
+    Algorithm, AlgorithmError, Covariance, Criterion, Model, OefpilError, Parameter, Report,
+    Variable,
 };
 
 const SAMPLES: usize = 12;
 
 /// Explicit bivariate model $`Y=P^1+P^2X^1+P^3X^2`$, so $`|V|=3`$.
 const EXPLICIT: Model = Model {
-    fx: |x, p| p[0] + p[1] * x[0] + p[2] * x[1],
-    dfdx: &[|_, p| p[1], |_, p| p[2]],
-    dfdp: &[|_, _| 1.0, |x, _| x[0], |x, _| x[1]],
+    fx: &|x, p| p[0] + p[1] * x[0] + p[2] * x[1],
+    dfdx: &[&|_, p| p[1], &|_, p| p[2]],
+    dfdp: &[&|_, _| 1.0, &|x, _| x[0], &|x, _| x[1]],
     implicit: false,
 };
 
 /// Implicit nonlinear model $`0=X^1+P^1X^2+P^2X^3+P^3X^1X^3-1`$, so $`|V|=3`$.
 const IMPLICIT: Model = Model {
-    fx: |x, p| x[0] + p[0] * x[1] + p[1] * x[2] + p[2] * x[0] * x[2] - 1.0,
-    dfdx: &[
-        |x, p| 1.0 + p[2] * x[2],
-        |_, p| p[0],
-        |x, p| p[1] + p[2] * x[0],
-    ],
-    dfdp: &[|x, _| x[1], |x, _| x[2], |x, _| x[0] * x[2]],
+    fx: &|x, p| x[0] + p[0] * x[1] + p[1] * x[2] + p[2] * x[0] * x[2] - 1.0,
+    dfdx: &[&|x, p| 1.0 + p[2] * x[2], &|_, p| p[0], &|x, p| {
+        p[1] + p[2] * x[0]
+    }],
+    dfdp: &[&|x, _| x[1], &|x, _| x[2], &|x, _| x[0] * x[2]],
     implicit: true,
 };
 
 /// Explicit trivariate model $`Y=P^1+P^2X^1+P^3X^2+P^4X^3`$, so $`|V|=4`$.
 const QUADRIVARIATE: Model = Model {
-    fx: |x, p| p[0] + p[1] * x[0] + p[2] * x[1] + p[3] * x[2],
-    dfdx: &[|_, p| p[1], |_, p| p[2], |_, p| p[3]],
-    dfdp: &[|_, _| 1.0, |x, _| x[0], |x, _| x[1], |x, _| x[2]],
+    fx: &|x, p| p[0] + p[1] * x[0] + p[2] * x[1] + p[3] * x[2],
+    dfdx: &[&|_, p| p[1], &|_, p| p[2], &|_, p| p[3]],
+    dfdp: &[&|_, _| 1.0, &|x, _| x[0], &|x, _| x[1], &|x, _| x[2]],
     implicit: false,
 };
 
@@ -143,7 +141,6 @@ fn fit(model: Model, v: &[f64], covariance: &Covariance, p: &[f64]) -> Result<Fi
             covariance: &mut fit.p_covariance,
             ..Parameter::default()
         },
-        &mut Discard,
     )?;
     Ok(fit)
 }
@@ -442,7 +439,7 @@ fn asymmetric_tile_among_variables_is_optimal() -> Result<(), OefpilError> {
 fn not_finite_beyond_first_sample_is_numerical_error() -> Result<(), OefpilError> {
     const THRESHOLD: f64 = 1.2;
     const FX: Model = Model {
-        fx: |x, p| {
+        fx: &|x, p| {
             if x[0] > THRESHOLD {
                 f64::NAN
             } else {
@@ -453,22 +450,22 @@ fn not_finite_beyond_first_sample_is_numerical_error() -> Result<(), OefpilError
     };
     const DFDX: Model = Model {
         dfdx: &[
-            |x, p| {
+            &|x, p| {
                 if x[0] > THRESHOLD {
                     f64::INFINITY
                 } else {
                     p[1]
                 }
             },
-            |_, p| p[2],
+            &|_, p| p[2],
         ],
         ..EXPLICIT
     };
     const DFDP: Model = Model {
         dfdp: &[
-            |x, _| if x[0] > THRESHOLD { f64::NAN } else { 1.0 },
-            |x, _| x[0],
-            |x, _| x[1],
+            &|x, _| if x[0] > THRESHOLD { f64::NAN } else { 1.0 },
+            &|x, _| x[0],
+            &|x, _| x[1],
         ],
         ..EXPLICIT
     };
@@ -495,7 +492,6 @@ fn not_finite_beyond_first_sample_is_numerical_error() -> Result<(), OefpilError
                 covariance: &mut [0f64; 9],
                 ..Parameter::default()
             },
-            &mut Discard,
         );
         assert!(matches!(
             result,

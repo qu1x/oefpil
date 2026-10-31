@@ -190,7 +190,6 @@ pub fn dgemv(
 }
 
 /// `DTRMV`: Computes `x = op(A) * x`.
-#[cfg(any(test, feature = "random"))]
 pub fn dtrmv(
     uplo: Uplo,
     trans: Trans,

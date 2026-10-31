@@ -1,19 +1,19 @@
 //! Explicit univariate biparametric sinusoidal model.
 
-use oefpil::{
-    Algorithm, Covariance, Discard, Distribution, Model, OefpilError, Parameter, Variable,
-};
+use oefpil::{Algorithm, Covariance, Distribution, Model, OefpilError, Parameter, Variable};
+use rand::Rng;
 use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
+use rand_distr::StandardNormal;
 
 #[allow(clippy::float_cmp)]
 fn main() -> Result<(), OefpilError> {
     // Define explicit model of one independent variable and two parameters.
     const MODEL: Model = Model {
-        fx: |x, p| p[1] * (x[0] + p[0]).to_radians().sin(),
-        dfdx: &[|x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians()],
+        fx: &|x, p| p[1] * (x[0] + p[0]).to_radians().sin(),
+        dfdx: &[&|x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians()],
         dfdp: &[
-            |x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians(),
-            |x, p| (x[0] + p[0]).to_radians().sin(),
+            &|x, p| p[1] * (x[0] + p[0]).to_radians().cos().to_radians(),
+            &|x, p| (x[0] + p[0]).to_radians().sin(),
         ],
         implicit: false,
     };
@@ -46,7 +46,7 @@ fn main() -> Result<(), OefpilError> {
         covariance,
     };
     // Simulate measurement by sampling observations from distributions of variables.
-    distribution.sample(&mut csprng)?;
+    distribution.sample(|| csprng.sample(StandardNormal))?;
     // Pretend mediocre estimates of variable means (empty slices default to samples).
     let mut variable = Variable {
         sample: distribution.sample,
@@ -63,7 +63,7 @@ fn main() -> Result<(), OefpilError> {
     };
     // Perform fitting with default settings.
     let oefpil = Algorithm::default();
-    let report = oefpil.fit(MODEL, &mut variable, &mut parameter, &mut Discard)?;
+    let report = oefpil.fit(MODEL, &mut variable, &mut parameter)?;
     // Assert expected results.
     let round = |value: f64| (value * 1e2).round() / 1e2;
     assert_eq!(7, report.iterations);
@@ -79,7 +79,7 @@ fn main() -> Result<(), OefpilError> {
     let mut p_sample = vec![0f64; samples * p_mean.len()];
     let mut p_correlation = vec![0f64; samples];
     for sample in 0..samples {
-        distribution.sample(&mut csprng)?;
+        distribution.sample(|| csprng.sample(StandardNormal))?;
         let mut variable = Variable {
             sample: distribution.sample,
             mean: &mut [],
@@ -91,7 +91,7 @@ fn main() -> Result<(), OefpilError> {
             deviation: &mut [0f64; 2],
             correlation: &mut [0f64; 4],
         };
-        oefpil.fit(MODEL, &mut variable, &mut parameter, &mut Discard)?;
+        oefpil.fit(MODEL, &mut variable, &mut parameter)?;
         p_sample[sample] = parameter.mean[0];
         p_sample[sample + samples] = parameter.mean[1];
         p_correlation[sample] = parameter.correlation[1];

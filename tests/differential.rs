@@ -15,8 +15,8 @@
 
 use core::ffi::{c_int, c_void};
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Criterion, Discard, Model, OefpilError, Parameter,
-    Report, Variable, Verbosity,
+    Algorithm, AlgorithmError, Covariance, Criterion, Model, OefpilError, Parameter, Report,
+    Variable, Verbosity,
 };
 use oefpil_sys as sys;
 use std::{fs, process, ptr, slice};
@@ -85,7 +85,7 @@ impl Problem {
             parameter_covariance: vec![0f64; self.parameter.len().pow(2)],
             mean: self.sample.clone(),
         };
-        let result = self.algorithm.fit(
+        let result = self.algorithm.fit_with_log(
             self.model,
             &mut Variable {
                 sample: &self.sample,
@@ -233,7 +233,7 @@ impl Problem {
     /// may need a different number of iterations.
     #[track_caller]
     fn assert_agreement(&self, tolerance: f64, what: &str) -> Fit {
-        let rust = self.fit_rust(&mut Discard);
+        let rust = self.fit_rust(&mut String::new());
         let c = self.fit_c(None);
         assert_eq!(c.status, rust.status, "{what}: status");
         if c.status.is_ok() {
@@ -321,78 +321,72 @@ unsafe extern "C" fn evaluate(
 }
 
 const LINE: Model = Model {
-    fx: |x, p| p[0] * x[0] + p[1],
-    dfdx: &[|_, p| p[0]],
-    dfdp: &[|x, _| x[0], |_, _| 1.0],
+    fx: &|x, p| p[0] * x[0] + p[1],
+    dfdx: &[&|_, p| p[0]],
+    dfdp: &[&|x, _| x[0], &|_, _| 1.0],
     implicit: false,
 };
 
 const CUBIC: Model = Model {
-    fx: |x, p| p[0] + x[0] * (p[1] + x[0] * (p[2] + x[0] * p[3])),
-    dfdx: &[|x, p| p[1] + x[0] * (2.0 * p[2] + x[0] * 3.0 * p[3])],
-    dfdp: &[
-        |_, _| 1.0,
-        |x, _| x[0],
-        |x, _| x[0] * x[0],
-        |x, _| x[0].powi(3),
-    ],
+    fx: &|x, p| p[0] + x[0] * (p[1] + x[0] * (p[2] + x[0] * p[3])),
+    dfdx: &[&|x, p| p[1] + x[0] * (2.0 * p[2] + x[0] * 3.0 * p[3])],
+    dfdp: &[&|_, _| 1.0, &|x, _| x[0], &|x, _| x[0] * x[0], &|x, _| {
+        x[0].powi(3)
+    }],
     implicit: false,
 };
 
 const QUINTIC: Model = Model {
-    fx: |x, p| p[0] + x[0] * (p[1] + x[0] * (p[2] + x[0] * (p[3] + x[0] * (p[4] + x[0] * p[5])))),
-    dfdx: &[|x, p| {
+    fx: &|x, p| p[0] + x[0] * (p[1] + x[0] * (p[2] + x[0] * (p[3] + x[0] * (p[4] + x[0] * p[5])))),
+    dfdx: &[&|x, p| {
         p[1] + x[0] * (2.0 * p[2] + x[0] * (3.0 * p[3] + x[0] * (4.0 * p[4] + x[0] * 5.0 * p[5])))
     }],
     dfdp: &[
-        |_, _| 1.0,
-        |x, _| x[0],
-        |x, _| x[0].powi(2),
-        |x, _| x[0].powi(3),
-        |x, _| x[0].powi(4),
-        |x, _| x[0].powi(5),
+        &|_, _| 1.0,
+        &|x, _| x[0],
+        &|x, _| x[0].powi(2),
+        &|x, _| x[0].powi(3),
+        &|x, _| x[0].powi(4),
+        &|x, _| x[0].powi(5),
     ],
     implicit: false,
 };
 
 const BOXBOD: Model = Model {
-    fx: |x, p| p[0] * (1.0 - (-p[1] * x[0]).exp()),
-    dfdx: &[|x, p| p[0] * (-p[1] * x[0]).exp() * p[1]],
-    dfdp: &[
-        |x, p| 1.0 - (-p[1] * x[0]).exp(),
-        |x, p| p[0] * (-p[1] * x[0]).exp() * x[0],
-    ],
+    fx: &|x, p| p[0] * (1.0 - (-p[1] * x[0]).exp()),
+    dfdx: &[&|x, p| p[0] * (-p[1] * x[0]).exp() * p[1]],
+    dfdp: &[&|x, p| 1.0 - (-p[1] * x[0]).exp(), &|x, p| {
+        p[0] * (-p[1] * x[0]).exp() * x[0]
+    }],
     implicit: false,
 };
 
 /// Explicit bivariate model, so three variables.
 const PLANE: Model = Model {
-    fx: |x, p| p[0] + p[1] * x[0] + p[2] * x[1],
-    dfdx: &[|_, p| p[1], |_, p| p[2]],
-    dfdp: &[|_, _| 1.0, |x, _| x[0], |x, _| x[1]],
+    fx: &|x, p| p[0] + p[1] * x[0] + p[2] * x[1],
+    dfdx: &[&|_, p| p[1], &|_, p| p[2]],
+    dfdp: &[&|_, _| 1.0, &|x, _| x[0], &|x, _| x[1]],
     implicit: false,
 };
 
 /// Implicit nonlinear model of three variables.
 const SURFACE: Model = Model {
-    fx: |x, p| x[0] + p[0] * x[1] + p[1] * x[2] + p[2] * x[0] * x[2] - 1.0,
-    dfdx: &[
-        |x, p| 1.0 + p[2] * x[2],
-        |_, p| p[0],
-        |x, p| p[1] + p[2] * x[0],
-    ],
-    dfdp: &[|x, _| x[1], |x, _| x[2], |x, _| x[0] * x[2]],
+    fx: &|x, p| x[0] + p[0] * x[1] + p[1] * x[2] + p[2] * x[0] * x[2] - 1.0,
+    dfdx: &[&|x, p| 1.0 + p[2] * x[2], &|_, p| p[0], &|x, p| {
+        p[1] + p[2] * x[0]
+    }],
+    dfdp: &[&|x, _| x[1], &|x, _| x[2], &|x, _| x[0] * x[2]],
     implicit: true,
 };
 
 /// Implicit circle of two variables.
 const CIRCLE: Model = Model {
-    fx: |x, p| (x[0] - p[0]).powi(2) + (x[1] - p[1]).powi(2) - p[2] * p[2],
-    dfdx: &[|x, p| 2.0 * (x[0] - p[0]), |x, p| 2.0 * (x[1] - p[1])],
+    fx: &|x, p| (x[0] - p[0]).powi(2) + (x[1] - p[1]).powi(2) - p[2] * p[2],
+    dfdx: &[&|x, p| 2.0 * (x[0] - p[0]), &|x, p| 2.0 * (x[1] - p[1])],
     dfdp: &[
-        |x, p| -2.0 * (x[0] - p[0]),
-        |x, p| -2.0 * (x[1] - p[1]),
-        |_, p| -2.0 * p[2],
+        &|x, p| -2.0 * (x[0] - p[0]),
+        &|x, p| -2.0 * (x[1] - p[1]),
+        &|_, p| -2.0 * p[2],
     ],
     implicit: true,
 };
@@ -642,7 +636,7 @@ fn most_problems_converge() {
     let suite = suite();
     let converged = suite
         .iter()
-        .filter(|(_, problem)| problem.fit_rust(&mut Discard).status.is_ok())
+        .filter(|(_, problem)| problem.fit_rust(&mut String::new()).status.is_ok())
         .count();
     assert!(
         converged * 10 >= suite.len() * 9,
@@ -684,10 +678,13 @@ fn unknown_scale_agrees() {
 #[test]
 fn iteration_limit_agrees() {
     let (_name, problem) = &suite()[13 * 3 + 10];
+    let iterations = problem.fit_rust(&mut String::new()).iterations;
+    assert!((2..12).contains(&iterations));
     for limit in 0..12 {
         let mut problem = problem.clone();
         problem.algorithm.iteration_limit = limit;
-        problem.assert_agreement(1e-7, &format!("limit {limit}"));
+        let fit = problem.assert_agreement(1e-7, &format!("limit {limit}"));
+        assert_eq!(fit.status.is_ok(), limit >= iterations, "limit {limit}");
     }
 }
 
@@ -755,19 +752,19 @@ fn not_finite(problem: Model<'static>) {
 #[test]
 fn not_finite_agrees() {
     not_finite(Model {
-        fx: |_, _| f64::NAN,
+        fx: &|_, _| f64::NAN,
         ..LINE
     });
     not_finite(Model {
-        fx: |_, _| f64::INFINITY,
+        fx: &|_, _| f64::INFINITY,
         ..LINE
     });
     not_finite(Model {
-        dfdx: &[|_, _| f64::NAN],
+        dfdx: &[&|_, _| f64::NAN],
         ..LINE
     });
     not_finite(Model {
-        dfdp: &[|_, _| f64::INFINITY, |_, _| 1.0],
+        dfdp: &[&|_, _| f64::INFINITY, &|_, _| 1.0],
         ..LINE
     });
 }
@@ -776,9 +773,9 @@ fn not_finite_agrees() {
 #[test]
 fn exactly_singular_factor_agrees() {
     const MODEL: Model = Model {
-        fx: |x, p| p[0] * x[0],
-        dfdx: &[|_, p| p[0]],
-        dfdp: &[|x, _| x[0], |_, _| 0.0],
+        fx: &|x, p| p[0] * x[0],
+        dfdx: &[&|_, p| p[0]],
+        dfdp: &[&|x, _| x[0], &|_, _| 0.0],
         implicit: false,
     };
     let n = 6;
@@ -793,7 +790,7 @@ fn exactly_singular_factor_agrees() {
         unknown_scale: false,
         algorithm: Algorithm::default(),
     };
-    let rust = problem.fit_rust(&mut Discard);
+    let rust = problem.fit_rust(&mut String::new());
     let c = problem.fit_c(None);
     assert_eq!(c.status, rust.status);
     assert!(rust.status.is_err());

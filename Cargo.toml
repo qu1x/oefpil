@@ -34,7 +34,6 @@ include = [
 ]
 
 [package.metadata.docs.rs]
-features = ["random"]
 cargo-args = ["-Z", "unstable-options", "-Z", "rustdoc-scrape-examples"]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex.html"]
 
@@ -46,12 +45,12 @@ derive_more = { version = "2.0.1", default-features = false, features = ["displa
 faer = { version = "0.24.4", default-features = false }
 libm = "0.2.15"
 special = "0.11.4"
-rand = { version = "0.9.1", default-features = false, optional = true }
-rand_distr = { version = "0.5.1", default-features = false, optional = true }
 
 [dev-dependencies]
 oefpil-sys = { path = "oefpil-sys" }
+rand = "0.9.1"
 rand_chacha = "0.9.0"
+rand_distr = "0.5.1"
 const-hex = "1.14.1"
 
 [lints.rust]
@@ -74,7 +73,6 @@ opt-level = 3
 [features]
 default = ["std"]
 std = ["faer/std"]
-random = ["rand", "rand_distr"]
 
 [[test]]
 name = "regression"
@@ -82,5 +80,4 @@ required-features = ["std"]
 
 [[example]]
 name = "sine"
-required-features = ["random"]
 doc-scrape-examples = true

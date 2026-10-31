@@ -167,16 +167,6 @@
 //!   * `std` (enabled by default) -- [`Logfile`] and [`read_matrix()`]. Without it, the linear
 //!     algebra is slower as it neither detects CPU features at runtime nor reuses thread-local
 //!     workspace.
-//!   * `random` (disabled by default) -- Random [`Distribution::sample()`] possibly correlated by
-//!     [`Covariance::with_decomposition()`].
-#![cfg_attr(
-    not(feature = "random"),
-    doc = r"
-
-[`Distribution::sample()`]:
-https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
-"
-)]
 #![cfg_attr(
     not(feature = "std"),
     doc = r"
@@ -228,14 +218,14 @@ mod log;
 mod oefpil;
 mod tiled;
 
-pub use log::{Discard, Format, Notation};
+pub use log::{Format, Notation};
 #[cfg(feature = "std")]
 pub use logfile::{LogWriter, Logfile};
 
 use alloc::{vec, vec::Vec};
 use core::fmt;
 use derive_more::{Display, Error, From};
-use log::Log;
+use log::{Discard, Log};
 use oefpil::{Status, oefpil};
 #[cfg(feature = "std")]
 use std::{
@@ -272,7 +262,7 @@ pub enum Criterion {
     ChiSquared = 6,
 }
 
-/// Log verbosity.
+/// Log verbosity of [`Algorithm::fit_with_log()`].
 ///
 /// Default is [`Self::Silent`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -305,11 +295,11 @@ pub struct Algorithm {
     ///
     /// Default is `100`.
     pub iteration_limit: usize,
-    /// Log verbosity.
+    /// Log verbosity of [`Self::fit_with_log()`].
     ///
     /// Default is [`Verbosity::Silent`].
     pub verbosity: Verbosity,
-    /// Log format of floating-point numbers.
+    /// Log format of floating-point numbers of [`Self::fit_with_log()`].
     ///
     /// Default is `8` digits after the decimal point in [`Notation::Exponential`].
     pub format: Format,
@@ -335,10 +325,7 @@ impl Algorithm {
     /// [`Variable::mean`] and [`Parameter::mean`] along with the [`Parameter::covariance`] matrix
     /// and optionally the [`Parameter::deviation`] vector and [`Parameter::correlation`] matrix.
     ///
-    /// The `log` is written according to [`Self::verbosity`]. It can be any [`core::fmt::Write`]
-    /// (e.g., `String`) or [`Discard`] if [`Verbosity::Silent`]. A failure to write does not
-    /// interrupt the fit which still yields its estimates but returns [`OefpilError::Log`] instead
-    /// of the [`Report`].
+    /// This does not log, see [`Self::fit_with_log()`].
     ///
     /// Returns the fitting [`Report`] on success.
     ///
@@ -346,6 +333,29 @@ impl Algorithm {
     ///
     /// Returns [`OefpilError`] on failure.
     pub fn fit(
+        &self,
+        model: Model,
+        variable: &mut Variable,
+        parameter: &mut Parameter,
+    ) -> Result<Report, OefpilError> {
+        let silent = Self {
+            verbosity: Verbosity::Silent,
+            ..*self
+        };
+        silent.fit_with_log(model, variable, parameter, &mut Discard)
+    }
+    /// Fits like [`Self::fit()`] while writing the `log`.
+    ///
+    /// The `log` is written according to [`Self::verbosity`] and [`Self::format`]. It can be any
+    /// [`core::fmt::Write`] (e.g., `String`). A failure to write does not interrupt the fit which
+    /// still yields its estimates but returns [`OefpilError::Log`] instead of the [`Report`].
+    ///
+    /// Returns the fitting [`Report`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OefpilError`] on failure.
+    pub fn fit_with_log(
         &self,
         model: Model,
         variable: &mut Variable,
@@ -419,9 +429,9 @@ mod logfile {
 
     /// Logfile of either standard output/error or custom file path.
     ///
-    /// Opened via [`Self::open()`] as `log` argument of [`Algorithm::fit()`].
+    /// Opened via [`Self::open()`] as `log` argument of [`Algorithm::fit_with_log()`].
     ///
-    /// [`Algorithm::fit()`]: crate::Algorithm::fit
+    /// [`Algorithm::fit_with_log()`]: crate::Algorithm::fit_with_log
     #[derive(Debug, Clone, Copy, Default)]
     pub enum Logfile<'a> {
         /// Standard output file descriptor/handle.
@@ -489,17 +499,27 @@ mod logfile {
 
 /// Model comprising the function $`Y=f(X;P)`$ or $`0=f(X;P)`$ and its derivative vectors in
 /// variables $`df/dX`$ and parameters $`df/dP`$.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[allow(clippy::similar_names)]
 pub struct Model<'a> {
     /// Explicit or implicit function $`Y=f(X;P)`$ or $`0=f(X;P)`$.
-    pub fx: Expression,
+    pub fx: Expression<'a>,
     /// Derivative vector $`df/dX`$ in independent variables $`X`$.
-    pub dfdx: &'a [Expression],
+    pub dfdx: &'a [Expression<'a>],
     /// Derivative vector $`df/dP`$ in parameters $`P`$.
-    pub dfdp: &'a [Expression],
+    pub dfdp: &'a [Expression<'a>],
     /// Whether the model is explicit or `implicit`.
     pub implicit: bool,
+}
+
+impl fmt::Debug for Model<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Model")
+            .field("dfdx", &self.dfdx.len())
+            .field("dfdp", &self.dfdp.len())
+            .field("implicit", &self.implicit)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Model<'_> {
@@ -527,15 +547,16 @@ impl Model<'_> {
     }
 }
 
-/// Mathematical expression in independent variables `x` and parameters `p`.
+/// Mathematical expression in independent variables `x` and parameters `p`, in this order.
+///
+/// It may capture its environment (e.g., calibration constants).
 ///
 /// A panic unwinds through [`Algorithm::fit()`] leaving its outputs in an unspecified state.
-pub type Expression = fn(x: &[f64], p: &[f64]) -> f64;
+pub type Expression<'a> = &'a dyn Fn(&[f64], &[f64]) -> f64;
 
 /// Distribution comprising sample matrix $`v`$, sample mean matrix $`\mu`$, and sample
 /// [`Covariance`] matrix $`\gdef\c#1#2{\textup{Cov}(#1,#2)}\c{V}{V}`$.
 #[derive(Debug)]
-#[cfg(feature = "random")]
 pub struct Distribution<'a> {
     /// Sample matrix $`v`$ as output.
     ///
@@ -557,9 +578,31 @@ pub struct Distribution<'a> {
     pub covariance: &'a Covariance,
 }
 
-#[cfg(feature = "random")]
 impl Distribution<'_> {
-    /// Samples `random` observations possibly correlated by [`Covariance::with_decomposition()`].
+    /// Samples observations possibly correlated by [`Covariance::with_decomposition()`].
+    ///
+    /// Each call of `normal` must yield an independent realization of the standard normal
+    /// distribution (mean of `0` and deviation of `1`) which is up to any random number generator:
+    ///
+    /// ```
+    /// use oefpil::{Covariance, Distribution, OefpilError};
+    /// use rand::Rng;
+    /// use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
+    /// use rand_distr::StandardNormal;
+    ///
+    /// let covariance = Covariance::new_diagonal(2, 2)
+    ///     .with_tile(0, 0, &[1e-2, 1e-2])?
+    ///     .with_tile(1, 1, &[1e-2, 1e-2])?
+    ///     .with_decomposition()?;
+    /// let mut random = ChaChaRng::seed_from_u64(0);
+    /// let mut distribution = Distribution {
+    ///     sample: &mut [0f64; 4],
+    ///     mean: &[1.0, 2.0, 3.0, 4.0],
+    ///     covariance: &covariance,
+    /// };
+    /// distribution.sample(|| random.sample(StandardNormal))?;
+    /// # Ok::<(), OefpilError>(())
+    /// ```
     ///
     /// This facilitates a [Monte Carlo simulation] to confirm the [`Parameter::covariance`] matrix.
     ///
@@ -568,14 +611,11 @@ impl Distribution<'_> {
     /// # Errors
     ///
     /// Returns [`OefpilError`] on failure.
-    pub fn sample(&mut self, random: &mut dyn rand::RngCore) -> Result<(), OefpilError> {
+    pub fn sample(&mut self, mut normal: impl FnMut() -> f64) -> Result<(), OefpilError> {
         self.validate()?;
         let length = self.sample.len();
         // Uncorrelated observational unit errors (mean of `0` and deviation of `1`).
-        self.sample
-            .iter_mut()
-            .zip(rand::Rng::sample_iter(random, rand_distr::StandardNormal))
-            .for_each(|(sample, random): (&mut f64, f64)| *sample = random);
+        self.sample.iter_mut().for_each(|sample| *sample = normal());
         // Correlated observational errors.
         la::dtrmv(
             la::Uplo::Lower,
@@ -1073,14 +1113,6 @@ impl Covariance {
     /// Computes and stores [Cholesky decomposition] $`L`$ where $`\c{V}{V}=LL^T`$.
     ///
     /// Required by [`Distribution::sample()`].
-    #[cfg_attr(
-        not(feature = "random"),
-        doc = r"
-
-[`Distribution::sample()`]:
-https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
-"
-    )]
     ///
     /// [Cholesky decomposition]: https://en.wikipedia.org/wiki/Cholesky_decomposition
     ///
@@ -1349,7 +1381,6 @@ pub enum OefpilError {
     Variable(#[error(source)] VariableError),
     /// Invalid distribution.
     #[display("invalid distribution")]
-    #[cfg(feature = "random")]
     Distribution(#[error(source)] DistributionError),
     /// Invalid covariance.
     #[display("invalid covariance")]
@@ -1406,7 +1437,6 @@ pub enum VariableError {
 /// Distribution errors.
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
-#[cfg(feature = "random")]
 pub enum DistributionError {
     /// Mismatching length of multivariate [`Distribution::sample`] matrix.
     #[display("mismatching length of multivariate sample matrix")]

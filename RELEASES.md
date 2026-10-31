@@ -4,8 +4,15 @@
     implementations in the test suite. The results agree up to rounding errors.
   * Support `no_std` environments with an allocator by disabling the new default feature `std`,
     which gates `Logfile` and `read_matrix()`.
-  * Take any `core::fmt::Write` as log of `Algorithm::fit()`, with `Discard` if `Verbosity::Silent`.
-    Open a `Logfile` via `Logfile::open()` and flush it via `LogWriter::finish()`.
+  * Allow capturing closures in `Model` as `Expression` is now `&dyn Fn(&[f64], &[f64]) -> f64`
+    instead of a function pointer. Write `&|x, p| ...` instead of `|x, p| ...`. A `Model` is no
+    longer `Sync` and hence cannot be a `static` but it can still be a `const`.
+  * Remove `rand` and `rand_distr` from the public API along with feature `random`.
+    `Distribution::sample()` takes any `FnMut() -> f64` yielding standard normal values and
+    `Distribution` as well as `DistributionError` are always available.
+  * Remove `log` argument and logging of `Algorithm::fit()`. Add `Algorithm::fit_with_log()` taking
+    any `core::fmt::Write` as log. Open a `Logfile` via `Logfile::open()` and flush it via
+    `LogWriter::finish()`.
   * Return `OefpilError::Log` if writing the log fails. The fit still yields its estimates.
   * Add `Algorithm::format` to replace environment variable `OEFPIL_PRINTFORMAT`. Remove environment
     variables `OEFPIL_DEBUG` and `OEFPIL_MAXIT`, the latter is covered by

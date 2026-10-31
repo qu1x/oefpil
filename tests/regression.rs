@@ -3,8 +3,8 @@
 #![allow(clippy::float_cmp, clippy::suboptimal_flops)]
 
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Discard, Format, Logfile, Model, Notation, OefpilError,
-    Parameter, Report, Variable, VariableError, Verbosity, read_matrix,
+    Algorithm, AlgorithmError, Covariance, Distribution, DistributionError, Format, Logfile, Model,
+    Notation, OefpilError, Parameter, Report, Variable, VariableError, Verbosity, read_matrix,
 };
 use std::{
     fs,
@@ -14,9 +14,9 @@ use std::{
 };
 
 const LINE: Model = Model {
-    fx: |x, p| p[0] + p[1] * x[0],
-    dfdx: &[|_, p| p[1]],
-    dfdp: &[|_, _| 1.0, |x, _| x[0]],
+    fx: &|x, p| p[0] + p[1] * x[0],
+    dfdx: &[&|_, p| p[1]],
+    dfdp: &[&|_, _| 1.0, &|x, _| x[0]],
     implicit: false,
 };
 
@@ -45,7 +45,6 @@ fn fit(
             covariance: &mut parameter_covariance,
             ..Parameter::default()
         },
-        &mut Discard,
     )?;
     Ok((report, mean, parameter_covariance))
 }
@@ -241,7 +240,7 @@ fn failing_log_is_error_but_fit_yields_estimates() -> Result<(), OefpilError> {
         verbosity: Verbosity::ParameterMean,
         ..Algorithm::default()
     }
-    .fit(
+    .fit_with_log(
         LINE,
         &mut Variable {
             sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
@@ -269,7 +268,7 @@ fn logfile_writes_log_to_custom_file() -> Result<(), OefpilError> {
         verbosity: Verbosity::ParameterMean,
         ..Algorithm::default()
     }
-    .fit(
+    .fit_with_log(
         LINE,
         &mut Variable {
             sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
@@ -301,7 +300,7 @@ fn format_applies_to_log() -> Result<(), OefpilError> {
             format,
             ..Algorithm::default()
         }
-        .fit(
+        .fit_with_log(
             LINE,
             &mut Variable {
                 sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
@@ -328,6 +327,82 @@ fn format_applies_to_log() -> Result<(), OefpilError> {
 }
 
 #[test]
+fn model_captures_environment() -> Result<(), OefpilError> {
+    let scale = 2.0;
+    let captured = Model {
+        fx: &|x, p| p[0] + scale * p[1] * x[0],
+        dfdx: &[&|_, p| scale * p[1]],
+        dfdp: &[&|_, _| 1.0, &|x, _| scale * x[0]],
+        implicit: false,
+    };
+    let covariance = diagonal(4)?;
+    let fit = |model, mean: &mut [f64; 2]| {
+        Algorithm::default().fit(
+            model,
+            &mut Variable {
+                sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+                mean: &mut [],
+                covariance: &covariance,
+            },
+            &mut Parameter {
+                mean,
+                covariance: &mut [0f64; 4],
+                ..Parameter::default()
+            },
+        )
+    };
+    let (mut scaled, mut reference) = ([1.0, 1.0], [1.0, 2.0]);
+    fit(captured, &mut scaled)?;
+    fit(LINE, &mut reference)?;
+    assert!((scaled[0] - reference[0]).abs() < 1e-6);
+    assert!((scale * scaled[1] - reference[1]).abs() < 1e-6);
+    Ok(())
+}
+
+#[test]
+fn fit_does_not_log_regardless_of_verbosity() -> Result<(), OefpilError> {
+    let covariance = diagonal(4)?;
+    let algorithm = Algorithm {
+        verbosity: Verbosity::IndividualSteps,
+        ..Algorithm::default()
+    };
+    let mut mean = [0.9, 2.1];
+    let mut logged_mean = mean;
+    let mut log = String::new();
+    let report = algorithm.fit(
+        LINE,
+        &mut Variable {
+            sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+            mean: &mut [],
+            covariance: &covariance,
+        },
+        &mut Parameter {
+            mean: &mut mean,
+            covariance: &mut [0f64; 4],
+            ..Parameter::default()
+        },
+    )?;
+    let logged = algorithm.fit_with_log(
+        LINE,
+        &mut Variable {
+            sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+            mean: &mut [],
+            covariance: &covariance,
+        },
+        &mut Parameter {
+            mean: &mut logged_mean,
+            covariance: &mut [0f64; 4],
+            ..Parameter::default()
+        },
+        &mut log,
+    )?;
+    assert!(log.starts_with("### OEFPIL begin ###"));
+    assert_eq!(report.iterations, logged.iterations);
+    assert_eq!(mean, logged_mean);
+    Ok(())
+}
+
+#[test]
 fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
     let covariance = diagonal(4)?;
     let fit = |iteration_limit| {
@@ -347,7 +422,6 @@ fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
                 covariance: &mut [0f64; 4],
                 ..Parameter::default()
             },
-            &mut Discard,
         )
     };
     let iterations = fit(100)?.iterations;
@@ -356,6 +430,46 @@ fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
     assert!(matches!(
         fit(iterations - 1),
         Err(OefpilError::Algorithm(AlgorithmError::IterationLimit))
+    ));
+    Ok(())
+}
+
+#[test]
+fn distribution_sample_correlates_normal_values() -> Result<(), OefpilError> {
+    let covariance = diagonal(2)?.with_decomposition()?;
+    let mut sample = [0f64; 4];
+    let mut distribution = Distribution {
+        sample: &mut sample,
+        mean: &[1.0, 2.0, 3.0, 4.0],
+        covariance: &covariance,
+    };
+    let mut calls = 0;
+    distribution.sample(|| {
+        calls += 1;
+        1.0
+    })?;
+    assert_eq!(calls, 4);
+    let expected = covariance.to_full();
+    for (index, (sample, mean)) in sample.iter().zip([1.0, 2.0, 3.0, 4.0]).enumerate() {
+        let deviation = expected[index * 4 + index].sqrt();
+        assert!((sample - mean - deviation).abs() < 1e-12);
+    }
+    Ok(())
+}
+
+#[test]
+fn distribution_sample_requires_decomposition() -> Result<(), OefpilError> {
+    let covariance = diagonal(2)?;
+    let mut distribution = Distribution {
+        sample: &mut [0f64; 4],
+        mean: &[0f64; 4],
+        covariance: &covariance,
+    };
+    assert!(matches!(
+        distribution.sample(|| unreachable!("invalid distribution")),
+        Err(OefpilError::Distribution(
+            DistributionError::MissingDecomposition
+        ))
     ));
     Ok(())
 }
