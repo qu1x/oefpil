@@ -3,7 +3,7 @@
   * Rewrite in pure Rust without system dependencies. `oefpil-sys` is merely used to compare both
     implementations in the test suite. The results agree up to rounding errors.
   * Add optional feature `faer` to speed up large block-diagonal and full covariance matrices.
-  * Add examples `altimeter.rs`, `compass.rs`, and `supernovae.rs`.
+  * Add examples `altimeter.rs`, `compass.rs`, `supernovae.rs`, and `rar.rs`.
   * Support `no_std` environments with an allocator by disabling the new default feature `std`,
     which gates `Logfile` and `read_matrix()`.
   * Allow capturing closures in `Model` as `Expression` is now `&dyn Fn(&[f64], &[f64]) -> f64`

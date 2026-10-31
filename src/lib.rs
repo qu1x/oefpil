@@ -202,6 +202,11 @@
 //!     the published matter density of the universe from 1590 Type Ia supernovae of the Pantheon+
 //!     data release, which the first run downloads. Ignoring their correlation shifts the estimate
 //!     and claims too much precision.
+//!   * [`rar.rs`] -- Explicit nonlinear model of real data with errors in both variables correlated
+//!     within each galaxy -- Reanalyzes the radial acceleration relation of the SPARC database,
+//!     which the first run downloads. Ignoring this correlation claims about four times the actual
+//!     precision, confirmed via Monte Carlo simulation, whereas modeling it agrees with a Bayesian
+//!     sampler of the same model.
 //!
 //! # Troubleshooting
 //!
@@ -226,6 +231,7 @@
 //! [`altimeter.rs`]: ../src/altimeter/altimeter.rs.html
 //! [`compass.rs`]: ../src/compass/compass.rs.html
 //! [`supernovae.rs`]: ../src/supernovae/supernovae.rs.html
+//! [`rar.rs`]: ../src/rar/rar.rs.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(test), forbid(unsafe_code))]

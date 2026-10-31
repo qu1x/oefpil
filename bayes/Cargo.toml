@@ -1,0 +1,12 @@
+[package]
+name = "bayes"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+nuts-rs = "0.19"
+oefpil = { path = ".." }
+thiserror = "2"
+
+[workspace]

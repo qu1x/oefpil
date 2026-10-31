@@ -93,3 +93,7 @@ doc-scrape-examples = true
 [[example]]
 name = "supernovae"
 doc-scrape-examples = true
+
+[[example]]
+name = "rar"
+doc-scrape-examples = true
