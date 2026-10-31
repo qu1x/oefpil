@@ -1,3 +1,21 @@
+# Version 0.5.0 (unreleased)
+
+  * Rewrite in pure Rust without system dependencies. `oefpil-sys` is merely used to compare both
+    implementations in the test suite. The results agree up to rounding errors.
+  * Support `no_std` environments with an allocator by disabling the new default feature `std`,
+    which gates `Logfile` and `read_matrix()`.
+  * Take any `core::fmt::Write` as log of `Algorithm::fit()`, with `Discard` if `Verbosity::Silent`.
+    Open a `Logfile` via `Logfile::open()` and flush it via `LogWriter::finish()`.
+  * Return `OefpilError::Log` if writing the log fails. The fit still yields its estimates.
+  * Add `Algorithm::format` to replace environment variable `OEFPIL_PRINTFORMAT`. Remove environment
+    variables `OEFPIL_DEBUG` and `OEFPIL_MAXIT`, the latter is covered by
+    `Algorithm::iteration_limit`.
+  * Log non-finite model evaluations into the log if not `Verbosity::Silent` instead of always
+    writing them to the standard error stream. Omit the workspace sizes of LAPACK from the log.
+  * Remove the limit on the sizes of matrices and hence `OefpilError::TryFromInt`.
+  * Unwind panics of models through `Algorithm::fit()` instead of aborting the process.
+  * Define `Criterion` and `Verbosity` in this crate. They are no longer re-exports.
+
 # Version 0.4.0 (2026-10-31)
 
   * Support correlations among any number of variables via `Covariance::new_diagonals()` and

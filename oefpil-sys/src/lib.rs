@@ -292,6 +292,92 @@ unsafe extern "C" {
     #[doc(hidden)]
     pub unsafe fn dpotrf(uplo: *const c_char, n: c_int, a: *mut f64, lda: c_int, info: *mut c_int);
 
+    /// Computes the inverse of a real symmetric positive definite matrix from its factorization.
+    #[doc(hidden)]
+    pub unsafe fn dpotri(uplo: *const c_char, n: c_int, a: *mut f64, lda: c_int, info: *mut c_int);
+
+    /// Computes the QR factorization of a real matrix.
+    #[doc(hidden)]
+    pub unsafe fn dgeqr(
+        m: c_int,
+        n: c_int,
+        a: *mut f64,
+        lda: c_int,
+        t: *mut f64,
+        tsize: c_int,
+        work: *mut f64,
+        lwork: c_int,
+        info: *mut c_int,
+    );
+
+    /// Multiplies matrix with orthogonal factor of [`dgeqr`].
+    #[doc(hidden)]
+    pub unsafe fn dgemqr(
+        side: *const c_char,
+        trans: *const c_char,
+        m: c_int,
+        n: c_int,
+        k: c_int,
+        a: *const f64,
+        lda: c_int,
+        t: *const f64,
+        tsize: c_int,
+        c: *mut f64,
+        ldc: c_int,
+        work: *mut f64,
+        lwork: c_int,
+        info: *mut c_int,
+    );
+
+    /// Computes the dot product of two vectors.
+    #[doc(hidden)]
+    pub unsafe fn ddot(n: c_int, x: *const f64, incx: c_int, y: *const f64, incy: c_int) -> f64;
+
+    /// Multiplies matrix with vector.
+    #[doc(hidden)]
+    pub unsafe fn dgemv(
+        trans: *const c_char,
+        m: c_int,
+        n: c_int,
+        alpha: f64,
+        a: *const f64,
+        lda: c_int,
+        x: *const f64,
+        incx: c_int,
+        beta: f64,
+        y: *mut f64,
+        incy: c_int,
+    );
+
+    /// Solves triangular system with multiple right-hand sides.
+    #[doc(hidden)]
+    pub unsafe fn dtrsm(
+        side: *const c_char,
+        uplo: *const c_char,
+        trans: *const c_char,
+        diag: *const c_char,
+        m: c_int,
+        n: c_int,
+        alpha: f64,
+        a: *const f64,
+        lda: c_int,
+        b: *mut f64,
+        ldb: c_int,
+    );
+
+    /// Solves triangular system.
+    #[doc(hidden)]
+    pub unsafe fn dtrsv(
+        uplo: *const c_char,
+        trans: *const c_char,
+        diag: *const c_char,
+        n: c_int,
+        a: *const f64,
+        lda: c_int,
+        x: *mut f64,
+        incx: c_int,
+    );
+
     /// Multiplies lower or upper triangular matrix with vector.
     #[doc(hidden)]
     pub unsafe fn dtrmv(

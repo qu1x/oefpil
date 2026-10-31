@@ -1,7 +1,7 @@
 //! Explicit univariate biparametric sinusoidal model.
 
 use oefpil::{
-    Algorithm, Covariance, Distribution, Logfile, Model, OefpilError, Parameter, Variable,
+    Algorithm, Covariance, Discard, Distribution, Model, OefpilError, Parameter, Variable,
 };
 use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 
@@ -63,7 +63,7 @@ fn main() -> Result<(), OefpilError> {
     };
     // Perform fitting with default settings.
     let oefpil = Algorithm::default();
-    let report = oefpil.fit(MODEL, &mut variable, &mut parameter, Logfile::default())?;
+    let report = oefpil.fit(MODEL, &mut variable, &mut parameter, &mut Discard)?;
     // Assert expected results.
     let round = |value: f64| (value * 1e2).round() / 1e2;
     assert_eq!(7, report.iterations);
@@ -91,7 +91,7 @@ fn main() -> Result<(), OefpilError> {
             deviation: &mut [0f64; 2],
             correlation: &mut [0f64; 4],
         };
-        oefpil.fit(MODEL, &mut variable, &mut parameter, Logfile::default())?;
+        oefpil.fit(MODEL, &mut variable, &mut parameter, &mut Discard)?;
         p_sample[sample] = parameter.mean[0];
         p_sample[sample + samples] = parameter.mean[1];
         p_correlation[sample] = parameter.correlation[1];

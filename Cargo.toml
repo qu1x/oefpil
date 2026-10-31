@@ -18,10 +18,10 @@ keywords = [
 	"error-propagation",
 ]
 categories = [
-	"api-bindings",
 	"algorithms",
 	"mathematics",
 	"science",
+	"no-std",
 ]
 include = [
 	"src/**/*.rs",
@@ -42,12 +42,15 @@ rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex.html"]
 members = ["oefpil-sys"]
 
 [dependencies]
-oefpil-sys = { version = "0.4.0", path = "oefpil-sys" }
-derive_more = { version = "2.0.1", features = ["display", "error", "from"] }
+derive_more = { version = "2.0.1", default-features = false, features = ["display", "error", "from"] }
+faer = { version = "0.24.4", default-features = false }
+libm = "0.2.15"
+special = "0.11.4"
 rand = { version = "0.9.1", default-features = false, optional = true }
 rand_distr = { version = "0.5.1", default-features = false, optional = true }
 
 [dev-dependencies]
+oefpil-sys = { path = "oefpil-sys" }
 rand_chacha = "0.9.0"
 const-hex = "1.14.1"
 
@@ -69,7 +72,13 @@ opt-level = 3
 opt-level = 3
 
 [features]
+default = ["std"]
+std = ["faer/std"]
 random = ["rand", "rand_distr"]
+
+[[test]]
+name = "regression"
+required-features = ["std"]
 
 [[example]]
 name = "sine"

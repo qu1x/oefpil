@@ -142,9 +142,10 @@
 //!
 //! # Overview
 //!
-//! This crate provides a safe API to the [`oefpil-sys`] crate (see its system requirements) which
-//! statically links to the [C/Fortran library]. The safe Rust API comprises five structures *with
-//! public members* of which many can be left at their [`Default`] values:
+//! This crate is a pure Rust implementation of the [C/Fortran library] without any system
+//! dependency. It works in [`no_std`] environments with an allocator. The linear algebra is an
+//! implementation detail which does not surface in the API. The API comprises five structures
+//! *with public members* of which many can be left at their [`Default`] values:
 //!
 //!   * [`Algorithm`] for configuring the fitting algorithm (e.g., convergence [`Criterion`]).
 //!   * [`Model`] for defining the model comprising the function $`Y=f(X;P)`$ or $`0=f(X;P)`$ and
@@ -158,11 +159,16 @@
 //!     will be overwritten by the optimum estimates $`\hat\lambda`$.
 //!   * [`Report`] for reporting the number of iterations and statistical information.
 //!
-//! Following feature gates are disabled by default:
+//! The results agree with the [C/Fortran library] which the test suite compares against via the
+//! [`oefpil-sys`] crate, up to rounding errors as the linear algebra differs.
 //!
-//!   * `random` -- Random [`Distribution::sample()`] possibly correlated by
+//! Following feature gates are available:
+//!
+//!   * `std` (enabled by default) -- [`Logfile`] and [`read_matrix()`]. Without it, the linear
+//!     algebra is slower as it neither detects CPU features at runtime nor reuses thread-local
+//!     workspace.
+//!   * `random` (disabled by default) -- Random [`Distribution::sample()`] possibly correlated by
 //!     [`Covariance::with_decomposition()`].
-//!   * <code>[oefpil-sys]/built-in</code> -- Statically linked Fortran dependencies.
 #![cfg_attr(
     not(feature = "random"),
     doc = r"
@@ -171,6 +177,16 @@
 https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 "
 )]
+#![cfg_attr(
+    not(feature = "std"),
+    doc = r"
+
+[`Logfile`]: https://docs.rs/oefpil/latest/oefpil/enum.Logfile.html
+[`read_matrix()`]: https://docs.rs/oefpil/latest/oefpil/fn.read_matrix.html
+"
+)]
+//!
+//! [`no_std`]: https://crates.io/categories/no-std
 //!
 //! # Examples
 //!
@@ -200,48 +216,79 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
 //!   6. Adjust the [`Algorithm`] settings.
 //!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
-//!
-//! # Roadmap
-//!
-//! On the long run, this crate will provide a pure Rust implementation. The current Rust API won't
-//! necessarily need to change much. The [`oefpil-sys`] dependency will become optional. This will
-//! allow to compare both implementations. Currently, the [C/Fortran library] allocates working
-//! memory and its C API depends on the system type [`FILE`] defined in the C standard library. This
-//! might change though. The Rust implementation will work in [`no_std`] environments, probably by
-//! leveraging [`faer`] and [`dyn-stack`] internally. Not exposing them would allow a stable release
-//! sooner rather than later.
-//!
-//! [`no_std`]: https://crates.io/categories/no-std
-//! [`faer`]: https://docs.rs/faer
-//! [`dyn-stack`]: https://docs.rs/dyn-stack
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(test), forbid(unsafe_code))]
+
+extern crate alloc;
+
+mod gamma;
+mod la;
+mod log;
+mod oefpil;
+mod tiled;
+
+pub use log::{Discard, Format, Notation};
+#[cfg(feature = "std")]
+pub use logfile::{LogWriter, Logfile};
+
+use alloc::{vec, vec::Vec};
+use core::fmt;
 use derive_more::{Display, Error, From};
-pub use oefpil_sys::{Criterion, Verbosity};
-use oefpil_sys::{
-    Evaluate, Mode, dpotrf,
-    libc::{FILE, fclose, fflush, fopen},
-    oefpil, oefpil_tcm_blockdiag_set_tile_diag, oefpil_tcm_blockdiag_set_tile_full,
-    oefpil_tcm_blockdiag_set_tile_half, oefpil_tcm_diag_set_tile_diag,
-    oefpil_tcm_diags_set_tile_diag, oefpil_tcm_full_set_tile_diag, oefpil_tcm_full_set_tile_full,
-    oefpil_tcm_full_set_tile_half, stderr_file, stdout_file,
-};
+use log::Log;
+use oefpil::{Status, oefpil};
+#[cfg(feature = "std")]
 use std::{
-    ffi::{CString, c_int, c_void},
     fs::OpenOptions,
     io::{self, BufRead, BufReader, ErrorKind},
-    num::TryFromIntError,
     path::Path,
-    ptr,
-    slice::{from_raw_parts, from_raw_parts_mut},
+};
+use tiled::{
+    Mode, Tile, tcm_blockdiag_set_tile_diag, tcm_blockdiag_set_tile_full,
+    tcm_blockdiag_set_tile_half, tcm_diag_set_tile_diag, tcm_diags_set_tile_diag,
+    tcm_full_set_tile_diag, tcm_full_set_tile_full, tcm_full_set_tile_half,
 };
 
+/// Convergence criterion.
+///
+/// Default is [`Self::RelPOrAbsPAndRelXOrAbsX`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum Criterion {
+    /// Convergence in relative change of parameter mean.
+    RelP = 0,
+    /// Convergence in [`Self::RelP`] or absolute value of parameter mean.
+    RelPOrAbsP = 1,
+    /// Convergence in relative change of independent variable mean.
+    RelX = 2,
+    /// Convergence in [`Self::RelX`] or absolute value of independent variable mean.
+    RelXOrAbsX = 3,
+    /// Convergence in [`Self::RelP`] and [`Self::RelX`].
+    RelPAndRelX = 4,
+    /// Convergence in [`Self::RelPOrAbsP`] and [`Self::RelXOrAbsX`].
+    #[default]
+    RelPOrAbsPAndRelXOrAbsX = 5,
+    /// Convergence in chi-squared.
+    ChiSquared = 6,
+}
+
+/// Log verbosity.
+///
+/// Default is [`Self::Silent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Verbosity {
+    /// No logging.
+    #[default]
+    Silent = 0,
+    /// Logs parameter mean.
+    ParameterMean = 1,
+    /// Logs covariance matrix among [`Self::ParameterMean`].
+    ParameterCovariance = 2,
+    /// Logs individual steps among [`Self::ParameterMean`] and [`Self::ParameterCovariance`].
+    IndividualSteps = 3,
+}
+
 /// Settings of the fitting algorithm.
-///
-/// Following environment variables are respected:
-///
-///   * `OEFPIL_DEBUG` writes intermediate matrices to text files in working directory if defined.
-///   * `OEFPIL_PRINTFORMAT` modifies the floating-point formatter (e.g., `"8e"`, `"5f"`).
-///   * `OEFPIL_MAXIT` overrides [`Algorithm::iteration_limit`].
 #[derive(Debug, Clone, Copy)]
 pub struct Algorithm {
     /// Convergence criterion.
@@ -250,7 +297,7 @@ pub struct Algorithm {
     pub criterion: Criterion,
     /// Convergence tolerance.
     ///
-    /// Default is <code>[f64::EPSILON].[powf](f64::powf)(2.0 / 3.0)</code>.
+    /// Default is <code>[f64::EPSILON].powf(2.0 / 3.0)</code>.
     pub tolerance: f64,
     /// Iteration limit.
     ///
@@ -262,15 +309,20 @@ pub struct Algorithm {
     ///
     /// Default is [`Verbosity::Silent`].
     pub verbosity: Verbosity,
+    /// Log format of floating-point numbers.
+    ///
+    /// Default is `8` digits after the decimal point in [`Notation::Exponential`].
+    pub format: Format,
 }
 
 impl Default for Algorithm {
     fn default() -> Self {
         Self {
             criterion: Criterion::default(),
-            tolerance: f64::EPSILON.powf(2.0 / 3.0),
+            tolerance: libm::pow(f64::EPSILON, 2.0 / 3.0),
             iteration_limit: 100,
             verbosity: Verbosity::default(),
+            format: Format::default(),
         }
     }
 }
@@ -283,6 +335,11 @@ impl Algorithm {
     /// [`Variable::mean`] and [`Parameter::mean`] along with the [`Parameter::covariance`] matrix
     /// and optionally the [`Parameter::deviation`] vector and [`Parameter::correlation`] matrix.
     ///
+    /// The `log` is written according to [`Self::verbosity`]. It can be any [`core::fmt::Write`]
+    /// (e.g., `String`) or [`Discard`] if [`Verbosity::Silent`]. A failure to write does not
+    /// interrupt the fit which still yields its estimates but returns [`OefpilError::Log`] instead
+    /// of the [`Report`].
+    ///
     /// Returns the fitting [`Report`] on success.
     ///
     /// # Errors
@@ -293,179 +350,139 @@ impl Algorithm {
         model: Model,
         variable: &mut Variable,
         parameter: &mut Parameter,
-        logfile: Logfile,
+        log: &mut dyn fmt::Write,
     ) -> Result<Report, OefpilError> {
         model.validate()?;
         variable.validate(model)?;
         parameter.validate(model)?;
-        let x_variables = model.dfdx.len();
         let samples = variable.covariance.samples;
         let parameters = parameter.mean.len();
-        let x_fields = samples * x_variables;
+        let degrees_of_freedom = samples
+            .checked_sub(parameters)
+            .filter(|&dof| dof >= usize::from(variable.covariance.unknown_scale))
+            .ok_or(VariableError::InsufficientDegreesOfFreedom)?;
         let covariance = variable.covariance;
-        validate_sizes(
-            covariance.fields.len(),
-            samples,
-            covariance.variables,
-            parameters,
-        )?;
-        let mut x_sample_mean;
-        let mut y_sample_mean;
-        let (x_mean, y_mean): (&mut [f64], &mut [f64]) = if variable.mean.is_empty() {
-            x_sample_mean = variable.sample[..x_fields].to_vec();
-            y_sample_mean = variable.sample[x_fields..].to_vec();
-            (&mut x_sample_mean, &mut y_sample_mean)
+        let mut sample_mean;
+        let mean: &mut [f64] = if variable.mean.is_empty() {
+            sample_mean = variable.sample.to_vec();
+            &mut sample_mean
         } else {
-            variable.mean.split_at_mut(x_fields)
+            variable.mean
         };
-        let evaluate: Evaluate = Some(evaluate);
-        let mut data = Data {
+        let mut log = Log::new(log, self.verbosity, self.format);
+        let outcome = oefpil(
             model,
-            x: &mut vec![0.0; x_variables],
-        };
-        let mut info = 0;
-        let mut iterations = 0;
-        let mut report = Report {
-            degrees_of_freedom: samples
-                .checked_sub(parameters)
-                .filter(|&dof| dof >= usize::from(variable.covariance.unknown_scale))
-                .ok_or(VariableError::InsufficientDegreesOfFreedom)?,
-            ..Report::default()
-        };
-        let c_parameters = parameters.try_into()?;
-        let c_samples = samples.try_into()?;
-        let c_x_variables = x_variables.try_into()?;
-        let c_iteration_limit = self.iteration_limit.try_into()?;
-        unsafe {
-            let file = logfile.open()?;
-            oefpil(
-                evaluate,
-                ptr::from_mut(&mut data).cast(),
-                model.implicit.into(),
-                c_parameters,
-                parameter.mean.as_mut_ptr(),
-                parameter.covariance.as_mut_ptr(),
-                c_samples,
-                c_x_variables,
-                // C library reads dependent samples through this pointer as well.
-                variable.sample.as_ptr(),
-                variable.sample[x_fields..].as_ptr(),
-                x_mean.as_mut_ptr(),
-                y_mean.as_mut_ptr(),
-                variable.covariance.fields.as_ptr(),
-                variable.covariance.mode as c_int,
-                variable.covariance.tiles.as_ptr(),
-                c_iteration_limit,
-                self.tolerance,
-                self.verbosity as i32,
-                file,
-                ptr::from_mut(&mut report.chi_squared),
-                self.criterion as i32,
-                &raw mut info,
-                &raw mut iterations,
-                &raw mut report.chi_squared_reduced,
-                variable.covariance.unknown_scale,
-                ptr::null_mut(),
-            );
-            let log = if matches!(logfile, Logfile::Custom(_path)) {
-                fclose(file)
-            } else {
-                fflush(file)
-            };
-            if log != 0 {
-                Err(io::Error::last_os_error())?;
-            }
-        };
-        report.iterations = iterations.try_into()?;
+            parameter.mean,
+            parameter.covariance,
+            samples,
+            variable.sample,
+            mean,
+            &covariance.fields,
+            covariance.mode,
+            &covariance.tiles,
+            self.iteration_limit,
+            self.tolerance,
+            self.criterion,
+            covariance.unknown_scale,
+            &mut log,
+        );
+        if log.failed() {
+            return Err(OefpilError::Log(fmt::Error));
+        }
         parameter.derive_from_covariance();
-        match info {
-            1 => Ok(report),
-            2 => Err(AlgorithmError::IterationLimit.into()),
-            3 => Err(AlgorithmError::NumericalError.into()),
-            _ => unreachable!("unknown error"),
-        }
-    }
-}
-
-/// Ensures the products of sizes computed by the C library fit into its [`c_int`].
-fn validate_sizes(
-    fields: usize,
-    samples: usize,
-    variables: usize,
-    parameters: usize,
-) -> Result<(), TryFromIntError> {
-    for size in [fields, samples * variables, samples * parameters] {
-        c_int::try_from(size)?;
-    }
-    Ok(())
-}
-
-struct Data<'a> {
-    model: Model<'a>,
-    x: &'a mut [f64],
-}
-
-#[allow(clippy::similar_names)]
-unsafe extern "C" fn evaluate(
-    data: *mut c_void,
-    samples: c_int,
-    x_sample: *const f64,
-    parameter: *const f64,
-    fx: *mut f64,
-    dfdx: *mut f64,
-    dfdp: *mut f64,
-) {
-    let Data { model, x } = unsafe { &mut *data.cast::<Data>() };
-    let samples: usize = samples.try_into().unwrap();
-    let x_variables = model.dfdx.len();
-    let parameters = model.dfdp.len();
-    let x_sample = unsafe { from_raw_parts(x_sample, samples * x_variables) };
-    let p = unsafe { from_raw_parts(parameter, parameters) };
-    let fx = unsafe { from_raw_parts_mut(fx, samples) };
-    let dfdx = unsafe { from_raw_parts_mut(dfdx, samples * x_variables) };
-    let dfdp = unsafe { from_raw_parts_mut(dfdp, samples * parameters) };
-    for sample in 0..samples {
-        for x_variable in 0..x_variables {
-            x[x_variable] = x_sample[x_variable * samples + sample];
-        }
-        fx[sample] = (model.fx)(x, p);
-        for x_variable in 0..x_variables {
-            dfdx[x_variable * samples + sample] = (model.dfdx[x_variable])(x, p);
-        }
-        for parameter in 0..parameters {
-            dfdp[parameter * samples + sample] = (model.dfdp[parameter])(x, p);
-        }
-    }
-}
-
-/// Logfile of either standard output/error or custom file path.
-#[derive(Debug, Clone, Copy, Default)]
-pub enum Logfile<'a> {
-    /// Standard output file descriptor/handle.
-    #[default]
-    StdOut,
-    /// Standard error file descriptor/handle.
-    StdErr,
-    /// Custom file path to be opened.
-    Custom(&'a Path),
-}
-
-impl<'a> Logfile<'a> {
-    fn open(&'a self) -> Result<*mut FILE, io::Error> {
-        unsafe {
-            match self {
-                Self::StdOut => Ok(stdout_file()),
-                Self::StdErr => Ok(stderr_file()),
-                Self::Custom(path) => {
-                    let path = CString::new(path.as_os_str().as_encoded_bytes())?;
-                    let file = fopen(path.as_c_str().as_ptr(), c"w".as_ptr());
-                    if file.is_null() {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(file)
-                    }
-                }
+        match outcome.status {
+            Status::Converged => Ok(Report {
+                chi_squared: outcome.chi2,
+                chi_squared_reduced: outcome.sigma2,
+                degrees_of_freedom,
+                iterations: outcome.iterations,
+            }),
+            Status::MaxIterReached => Err(AlgorithmError::IterationLimit.into()),
+            Status::ErrorNan | Status::ErrorInf | Status::ErrorLapack => {
+                Err(AlgorithmError::NumericalError.into())
             }
+            Status::Ok => unreachable!("still iterating"),
+        }
+    }
+}
+
+/// Logging to the standard streams or to a file.
+#[cfg(feature = "std")]
+mod logfile {
+    use alloc::boxed::Box;
+    use core::fmt;
+    use std::{
+        fs::File,
+        io::{self, BufWriter, Write},
+        path::Path,
+    };
+
+    /// Logfile of either standard output/error or custom file path.
+    ///
+    /// Opened via [`Self::open()`] as `log` argument of [`Algorithm::fit()`].
+    ///
+    /// [`Algorithm::fit()`]: crate::Algorithm::fit
+    #[derive(Debug, Clone, Copy, Default)]
+    pub enum Logfile<'a> {
+        /// Standard output file descriptor/handle.
+        #[default]
+        StdOut,
+        /// Standard error file descriptor/handle.
+        StdErr,
+        /// Custom file path to be opened.
+        Custom(&'a Path),
+    }
+
+    impl Logfile<'_> {
+        /// Opens this logfile for writing, truncating a custom file.
+        ///
+        /// # Errors
+        ///
+        /// Returns standard I/O errors if a custom file cannot be created.
+        pub fn open(&self) -> io::Result<LogWriter> {
+            let writer: Box<dyn Write> = match self {
+                Self::StdOut => Box::new(io::stdout()),
+                Self::StdErr => Box::new(io::stderr()),
+                Self::Custom(path) => Box::new(BufWriter::new(File::create(path)?)),
+            };
+            Ok(LogWriter {
+                writer,
+                error: None,
+            })
+        }
+    }
+
+    /// Opened [`Logfile`] implementing [`core::fmt::Write`].
+    pub struct LogWriter {
+        writer: Box<dyn Write>,
+        error: Option<io::Error>,
+    }
+
+    impl LogWriter {
+        /// Flushes this writer.
+        ///
+        /// # Errors
+        ///
+        /// Returns the first standard I/O error of writing or flushing.
+        pub fn finish(mut self) -> io::Result<()> {
+            self.error.take().map_or_else(|| self.writer.flush(), Err)
+        }
+    }
+
+    impl fmt::Write for LogWriter {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            self.writer.write_all(text.as_bytes()).map_err(|error| {
+                self.error.get_or_insert(error);
+                fmt::Error
+            })
+        }
+    }
+
+    impl fmt::Debug for LogWriter {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("LogWriter")
+                .field("error", &self.error)
+                .finish_non_exhaustive()
         }
     }
 }
@@ -512,7 +529,7 @@ impl Model<'_> {
 
 /// Mathematical expression in independent variables `x` and parameters `p`.
 ///
-/// A panic aborts the process as it cannot unwind through the C library.
+/// A panic unwinds through [`Algorithm::fit()`] leaving its outputs in an unspecified state.
 pub type Expression = fn(x: &[f64], p: &[f64]) -> f64;
 
 /// Distribution comprising sample matrix $`v`$, sample mean matrix $`\mu`$, and sample
@@ -553,25 +570,23 @@ impl Distribution<'_> {
     /// Returns [`OefpilError`] on failure.
     pub fn sample(&mut self, random: &mut dyn rand::RngCore) -> Result<(), OefpilError> {
         self.validate()?;
-        let length = self.sample.len().try_into()?;
+        let length = self.sample.len();
         // Uncorrelated observational unit errors (mean of `0` and deviation of `1`).
         self.sample
             .iter_mut()
             .zip(rand::Rng::sample_iter(random, rand_distr::StandardNormal))
             .for_each(|(sample, random): (&mut f64, f64)| *sample = random);
         // Correlated observational errors.
-        unsafe {
-            oefpil_sys::dtrmv(
-                c"L".as_ptr(),
-                c"N".as_ptr(),
-                c"N".as_ptr(),
-                length,
-                self.covariance.decomposition.as_ptr(),
-                length,
-                self.sample.as_mut_ptr(),
-                1,
-            );
-        };
+        la::dtrmv(
+            la::Uplo::Lower,
+            la::Trans::No,
+            la::Diag::No,
+            length,
+            &self.covariance.decomposition,
+            length,
+            self.sample,
+            1,
+        );
         // Observational sample.
         self.sample
             .iter_mut()
@@ -679,7 +694,7 @@ impl Variable<'_> {
 #[derive(Debug, Clone)]
 pub struct Covariance {
     mode: Mode,
-    tiles: Vec<c_int>,
+    tiles: Vec<Tile>,
     fields: Vec<f64>,
     decomposition: Vec<f64>,
     samples: usize,
@@ -729,7 +744,7 @@ impl Covariance {
     pub fn new_diagonal(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        let tiles = vec![Mode::None as c_int; variables];
+        let tiles = vec![Tile::None; variables];
         let fields = vec![0.0; samples * variables];
         Self {
             mode: Mode::Diagonal,
@@ -791,7 +806,7 @@ impl Covariance {
     pub fn new_block_diagonal(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        let tiles = vec![Mode::None as c_int; variables];
+        let tiles = vec![Tile::None; variables];
         let fields = vec![0.0; samples.pow(2) * variables];
         Self {
             mode: Mode::BlockDiagonal,
@@ -844,7 +859,7 @@ impl Covariance {
     pub fn new_diagonals(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        let tiles = vec![Mode::None as c_int; variables.pow(2)];
+        let tiles = vec![Tile::None; variables.pow(2)];
         let fields = vec![0.0; samples * variables.pow(2)];
         Self {
             mode: Mode::Diagonals,
@@ -908,7 +923,7 @@ impl Covariance {
     pub fn new_full(samples: usize, variables: usize) -> Self {
         assert!(samples > 0);
         assert!(variables > 0);
-        let tiles = vec![Mode::None as c_int; variables.pow(2)];
+        let tiles = vec![Tile::None; variables.pow(2)];
         let fields = vec![0.0; (samples * variables).pow(2)];
         Self {
             mode: Mode::Full,
@@ -946,96 +961,76 @@ impl Covariance {
         fields: &[f64],
     ) -> Result<(), OefpilError> {
         self.decomposition.clear();
-        unsafe {
-            if !(row < self.variables && column < self.variables) {
-                return Err(CovarianceError::OutOfBoundTileIndex.into());
+        if !(row < self.variables && column < self.variables) {
+            return Err(CovarianceError::OutOfBoundTileIndex.into());
+        }
+        let samples = self.samples;
+        let variables = self.variables;
+        match self.mode {
+            Mode::Diagonal => {
+                if row != column {
+                    return Err(CovarianceError::NonDiagonalTileIndex.into());
+                }
+                if fields.len() != samples {
+                    return Err(CovarianceError::MismatchingTile.into());
+                }
+                tcm_diag_set_tile_diag(samples, &mut self.fields, &mut self.tiles, row, fields);
             }
-            c_int::try_from(self.fields.len())?;
-            let samples = i32::try_from(self.samples)?;
-            let variables = i32::try_from(self.variables)?;
-            let row = i32::try_from(row)?;
-            let column = i32::try_from(column)?;
-            match self.mode {
-                Mode::None => unreachable!("invalid mode"),
-                Mode::Diagonal => {
-                    if row != column {
-                        return Err(CovarianceError::NonDiagonalTileIndex.into());
-                    }
-                    if fields.len() != self.samples {
-                        return Err(CovarianceError::MismatchingTile.into());
-                    }
-                    oefpil_tcm_diag_set_tile_diag(
-                        samples,
-                        variables,
-                        self.fields.as_mut_ptr(),
-                        self.tiles.as_mut_ptr(),
-                        row,
-                        fields.as_ptr(),
-                    );
+            Mode::BlockDiagonal => {
+                if row != column {
+                    return Err(CovarianceError::NonDiagonalTileIndex.into());
                 }
-                Mode::BlockDiagonal => {
-                    if row != column {
-                        return Err(CovarianceError::NonDiagonalTileIndex.into());
+                let tcm_blockdiag_set_tile = if fields.len() == samples {
+                    tcm_blockdiag_set_tile_diag
+                } else if fields.len() == samples * (samples + 1) / 2 {
+                    tcm_blockdiag_set_tile_half
+                } else if fields.len() == samples.pow(2) {
+                    if !self.is_symmetric(fields) {
+                        return Err(CovarianceError::AsymmetricTile.into());
                     }
-                    let oefpil_tcm_blockdiag_set_tile = if fields.len() == self.samples {
-                        oefpil_tcm_blockdiag_set_tile_diag
-                    } else if fields.len() == self.samples * (self.samples + 1) / 2 {
-                        oefpil_tcm_blockdiag_set_tile_half
-                    } else if fields.len() == self.samples.pow(2) {
-                        if !self.is_symmetric(fields) {
-                            return Err(CovarianceError::AsymmetricTile.into());
-                        }
-                        oefpil_tcm_blockdiag_set_tile_full
-                    } else {
-                        return Err(CovarianceError::MismatchingTile.into());
-                    };
-                    oefpil_tcm_blockdiag_set_tile(
-                        samples,
-                        variables,
-                        self.fields.as_mut_ptr(),
-                        self.tiles.as_mut_ptr(),
-                        row,
-                        fields.as_ptr(),
-                    );
+                    tcm_blockdiag_set_tile_full
+                } else {
+                    return Err(CovarianceError::MismatchingTile.into());
+                };
+                tcm_blockdiag_set_tile(samples, &mut self.fields, &mut self.tiles, row, fields);
+            }
+            Mode::Diagonals => {
+                if fields.len() != samples {
+                    return Err(CovarianceError::MismatchingTile.into());
                 }
-                Mode::Diagonals => {
-                    if fields.len() != self.samples {
-                        return Err(CovarianceError::MismatchingTile.into());
+                tcm_diags_set_tile_diag(
+                    samples,
+                    variables,
+                    &mut self.fields,
+                    &mut self.tiles,
+                    row,
+                    column,
+                    fields,
+                );
+            }
+            Mode::Full => {
+                let tcm_full_set_tile = if fields.len() == samples {
+                    tcm_full_set_tile_diag
+                } else if fields.len() == samples * (samples + 1) / 2 {
+                    tcm_full_set_tile_half
+                } else if fields.len() == samples.pow(2) {
+                    if row == column && !self.is_symmetric(fields) {
+                        return Err(CovarianceError::AsymmetricTile.into());
                     }
-                    oefpil_tcm_diags_set_tile_diag(
-                        samples,
-                        variables,
-                        self.fields.as_mut_ptr(),
-                        self.tiles.as_mut_ptr(),
-                        row,
-                        column,
-                        fields.as_ptr(),
-                    );
-                }
-                Mode::Full => {
-                    let oefpil_tcm_full_set_tile = if fields.len() == self.samples {
-                        oefpil_tcm_full_set_tile_diag
-                    } else if fields.len() == self.samples * (self.samples + 1) / 2 {
-                        oefpil_tcm_full_set_tile_half
-                    } else if fields.len() == self.samples.pow(2) {
-                        if row == column && !self.is_symmetric(fields) {
-                            return Err(CovarianceError::AsymmetricTile.into());
-                        }
-                        oefpil_tcm_full_set_tile_full
-                    } else {
-                        return Err(CovarianceError::MismatchingTile.into());
-                    };
-                    // Swapped as C expects column-major `fields` whereas these are row-major.
-                    oefpil_tcm_full_set_tile(
-                        samples,
-                        variables,
-                        self.fields.as_mut_ptr(),
-                        self.tiles.as_mut_ptr(),
-                        column,
-                        row,
-                        fields.as_ptr(),
-                    );
-                }
+                    tcm_full_set_tile_full
+                } else {
+                    return Err(CovarianceError::MismatchingTile.into());
+                };
+                // Swapped as these expect column-major `fields` whereas these are row-major.
+                tcm_full_set_tile(
+                    samples,
+                    variables,
+                    &mut self.fields,
+                    &mut self.tiles,
+                    column,
+                    row,
+                    fields,
+                );
             }
         }
         Ok(())
@@ -1094,18 +1089,8 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
     /// Returns [`OefpilError`] on failure.
     pub fn with_decomposition(mut self) -> Result<Self, OefpilError> {
         self.decomposition = self.to_full();
-        let order = self.order().try_into()?;
-        let mut info = 0;
-        unsafe {
-            dpotrf(
-                c"L".as_ptr(),
-                order,
-                self.decomposition.as_mut_ptr(),
-                order,
-                &raw mut info,
-            );
-        };
-        match info {
+        let order = self.order();
+        match la::dpotrf(la::Uplo::Lower, order, &mut self.decomposition, order) {
             0 => Ok(self),
             _ => Err(AlgorithmError::NumericalError.into()),
         }
@@ -1118,7 +1103,6 @@ https://docs.rs/oefpil/latest/oefpil/struct.Distribution.html#method.sample
         let order = self.order();
         let mut fields = vec![0f64; order * order];
         match self.mode {
-            Mode::None => unreachable!("invalid mode"),
             Mode::Diagonal => {
                 for row_column in 0..self.fields.len() {
                     fields[row_column * order + row_column] = self.fields[row_column];
@@ -1237,7 +1221,7 @@ impl Parameter<'_> {
         if !self.deviation.is_empty() {
             for row_column in 0..parameters {
                 let diagonal = row_column * parameters + row_column;
-                self.deviation[row_column] = self.covariance[diagonal].sqrt();
+                self.deviation[row_column] = libm::sqrt(self.covariance[diagonal]);
             }
         }
         if !self.correlation.is_empty() {
@@ -1325,21 +1309,12 @@ impl Report {
     ///
     /// Returns [`OefpilError`] on failure, in particular if $`\nu=0`$ for which it is undefined.
     pub fn chi_squared_p_value(&self) -> Result<f64, OefpilError> {
-        let mut p = f64::NAN;
-        let mut q = f64::NAN;
-        let mut error = 0;
-        unsafe {
-            oefpil_sys::dcdchi(
-                self.chi_squared,
-                f64::from(i32::try_from(self.degrees_of_freedom)?),
-                &raw mut p,
-                &raw mut q,
-                &raw mut error,
-            );
-        }
-        match error {
-            0 => Ok(q),
-            _ => Err(AlgorithmError::NumericalError.into()),
+        #[allow(clippy::cast_precision_loss)]
+        let (_p, q) = gamma::dcdchi(self.chi_squared, self.degrees_of_freedom as f64);
+        if q.is_nan() {
+            Err(AlgorithmError::NumericalError.into())
+        } else {
+            Ok(q)
         }
     }
 }
@@ -1359,14 +1334,13 @@ impl Default for Report {
 #[derive(Debug, Display, Error, From)]
 #[non_exhaustive]
 pub enum OefpilError {
-    /// I/O error.
+    /// I/O error of [`Logfile`] or [`read_matrix()`].
     #[display("I/O error")]
+    #[cfg(feature = "std")]
     Io(#[error(source)] io::Error),
-    /// Conversion error between [`usize`] and [`i32`].
-    ///
-    /// Also returned when the size of a matrix exceeds what the C library can address.
-    #[display("conversion error")]
-    TryFromInt(#[error(source)] TryFromIntError),
+    /// Writing the log failed.
+    #[display("log error")]
+    Log(#[error(source)] fmt::Error),
     /// Invalid model.
     #[display("invalid model")]
     Model(#[error(source)] ModelError),
@@ -1496,6 +1470,7 @@ pub enum AlgorithmError {
     NumericalError,
 }
 
+#[cfg(feature = "std")]
 /// Reads matrix from text file at `path` into row-major [`Vec`].
 ///
 /// The `rows` are [`newline-separated`] and the `columns` are [`whitespace-separated`].
@@ -1524,7 +1499,7 @@ pub fn read_matrix(
         let line = lines.next().ok_or_else(|| {
             io::Error::new(
                 ErrorKind::InvalidData,
-                format!("expected {rows} row(s), found {row} row(s)"),
+                alloc::format!("expected {rows} row(s), found {row} row(s)"),
             )
         })??;
         let mut words = line.split_whitespace();
@@ -1532,7 +1507,7 @@ pub fn read_matrix(
             let word = words.next().ok_or_else(|| {
                 io::Error::new(
                     ErrorKind::InvalidData,
-                    format!("expected {columns} column(s), found {column} column(s)"),
+                    alloc::format!("expected {columns} column(s), found {column} column(s)"),
                 )
             })?;
             let field = if transpose {
@@ -1547,32 +1522,15 @@ pub fn read_matrix(
         if words.next().is_some() {
             Err(io::Error::new(
                 ErrorKind::InvalidData,
-                format!("expected {columns} column(s), found more"),
+                alloc::format!("expected {columns} column(s), found more"),
             ))?;
         }
     }
     if lines.next().is_some() {
         Err(io::Error::new(
             ErrorKind::InvalidData,
-            format!("expected {rows} rows(s), found more"),
+            alloc::format!("expected {rows} rows(s), found more"),
         ))?;
     }
     Ok(matrix)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_sizes;
-
-    #[test]
-    fn sizes_must_fit_into_c_int() {
-        let max = usize::try_from(i32::MAX).unwrap();
-        assert!(validate_sizes(max, 1, 1, 1).is_ok());
-        assert!(validate_sizes(max + 1, 1, 1, 1).is_err());
-        // 46341 is the first number of samples whose square does not fit.
-        assert!(validate_sizes(46_340usize.pow(2), 46_340, 1, 1).is_ok());
-        assert!(validate_sizes(46_341usize.pow(2), 46_341, 1, 1).is_err());
-        assert!(validate_sizes(1, 46_341, 46_341, 1).is_err());
-        assert!(validate_sizes(1, 46_341, 1, 46_341).is_err());
-    }
 }

@@ -3,8 +3,8 @@
 #![allow(clippy::float_cmp, clippy::suboptimal_flops)]
 
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Logfile, Model, OefpilError, Parameter, Report,
-    Variable, VariableError, read_matrix,
+    Algorithm, AlgorithmError, Covariance, Discard, Format, Logfile, Model, Notation, OefpilError,
+    Parameter, Report, Variable, VariableError, Verbosity, read_matrix,
 };
 use std::{
     fs,
@@ -45,7 +45,7 @@ fn fit(
             covariance: &mut parameter_covariance,
             ..Parameter::default()
         },
-        Logfile::default(),
+        &mut Discard,
     )?;
     Ok((report, mean, parameter_covariance))
 }
@@ -216,9 +216,60 @@ fn p_value_is_accurate_in_upper_tail() -> Result<(), OefpilError> {
 }
 
 #[test]
-fn logfile_path_with_nul_byte_is_error() -> Result<(), OefpilError> {
+fn logfile_path_with_nul_byte_is_error() {
+    let error = Logfile::Custom(Path::new("log\0file")).open().unwrap_err();
+    assert_eq!(ErrorKind::InvalidInput, error.kind());
+}
+
+/// Log sink failing after `remaining` writes.
+struct Failing {
+    remaining: usize,
+}
+
+impl std::fmt::Write for Failing {
+    fn write_str(&mut self, _text: &str) -> std::fmt::Result {
+        self.remaining = self.remaining.checked_sub(1).ok_or(std::fmt::Error)?;
+        Ok(())
+    }
+}
+
+#[test]
+fn failing_log_is_error_but_fit_yields_estimates() -> Result<(), OefpilError> {
     let covariance = diagonal(4)?;
-    let result = Algorithm::default().fit(
+    let mut mean = [0.9, 2.1];
+    let result = Algorithm {
+        verbosity: Verbosity::ParameterMean,
+        ..Algorithm::default()
+    }
+    .fit(
+        LINE,
+        &mut Variable {
+            sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+            mean: &mut [],
+            covariance: &covariance,
+        },
+        &mut Parameter {
+            mean: &mut mean,
+            covariance: &mut [0f64; 4],
+            ..Parameter::default()
+        },
+        &mut Failing { remaining: 3 },
+    );
+    assert!(matches!(result, Err(OefpilError::Log(_))));
+    assert!((mean[1] - 1.96).abs() < 0.01);
+    Ok(())
+}
+
+#[test]
+fn logfile_writes_log_to_custom_file() -> Result<(), OefpilError> {
+    let path = std::env::temp_dir().join(format!("oefpil-{}-log", process::id()));
+    let covariance = diagonal(4)?;
+    let mut log = Logfile::Custom(&path).open()?;
+    Algorithm {
+        verbosity: Verbosity::ParameterMean,
+        ..Algorithm::default()
+    }
+    .fit(
         LINE,
         &mut Variable {
             sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
@@ -230,12 +281,49 @@ fn logfile_path_with_nul_byte_is_error() -> Result<(), OefpilError> {
             covariance: &mut [0f64; 4],
             ..Parameter::default()
         },
-        Logfile::Custom(Path::new("log\0file")),
-    );
-    let Err(OefpilError::Io(error)) = result else {
-        panic!("expected I/O error");
+        &mut log,
+    )?;
+    log.finish()?;
+    let log = fs::read_to_string(&path)?;
+    fs::remove_file(&path)?;
+    assert!(log.starts_with("### OEFPIL begin ###"));
+    assert!(log.ends_with("### OEFPIL end ###\n"));
+    Ok(())
+}
+
+#[test]
+fn format_applies_to_log() -> Result<(), OefpilError> {
+    let covariance = diagonal(4)?;
+    let log = |format| -> Result<String, OefpilError> {
+        let mut log = String::new();
+        Algorithm {
+            verbosity: Verbosity::ParameterMean,
+            format,
+            ..Algorithm::default()
+        }
+        .fit(
+            LINE,
+            &mut Variable {
+                sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+                mean: &mut [],
+                covariance: &covariance,
+            },
+            &mut Parameter {
+                mean: &mut [0.9, 2.1],
+                covariance: &mut [0f64; 4],
+                ..Parameter::default()
+            },
+            &mut log,
+        )?;
+        Ok(log)
     };
-    assert_eq!(ErrorKind::InvalidInput, error.kind());
+    assert!(log(Format::default())?.contains("e+00"));
+    let fixed = log(Format {
+        notation: Notation::Fixed,
+        precision: 3,
+    })?;
+    assert!(!fixed.contains("e+00"));
+    assert!(fixed.contains(" 1.96"));
     Ok(())
 }
 
@@ -259,7 +347,7 @@ fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
                 covariance: &mut [0f64; 4],
                 ..Parameter::default()
             },
-            Logfile::default(),
+            &mut Discard,
         )
     };
     let iterations = fit(100)?.iterations;

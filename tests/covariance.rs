@@ -9,7 +9,7 @@
 )]
 
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Criterion, Logfile, Model, OefpilError, Parameter,
+    Algorithm, AlgorithmError, Covariance, Criterion, Discard, Model, OefpilError, Parameter,
     Report, Variable,
 };
 
@@ -143,7 +143,7 @@ fn fit(model: Model, v: &[f64], covariance: &Covariance, p: &[f64]) -> Result<Fi
             covariance: &mut fit.p_covariance,
             ..Parameter::default()
         },
-        Logfile::default(),
+        &mut Discard,
     )?;
     Ok(fit)
 }
@@ -495,7 +495,7 @@ fn not_finite_beyond_first_sample_is_numerical_error() -> Result<(), OefpilError
                 covariance: &mut [0f64; 9],
                 ..Parameter::default()
             },
-            Logfile::default(),
+            &mut Discard,
         );
         assert!(matches!(
             result,

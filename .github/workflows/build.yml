@@ -36,6 +36,34 @@ jobs:
       run: cargo doc
     - name: fmt
       run: cargo fmt --check
+  no-std:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-none, aarch64-unknown-none
+        components: clippy
+    - name: dependencies
+      run: |
+        sudo apt update
+        sudo apt install liblapack-dev gcc
+    - name: check
+      run: |
+        cargo check --no-default-features --target x86_64-unknown-none
+        cargo check --no-default-features --features random --target x86_64-unknown-none
+    - name: build
+      run: |
+        cargo build --no-default-features --target aarch64-unknown-none
+        cargo build --no-default-features --features random --target aarch64-unknown-none
+    - name: test
+      run: cargo test --no-default-features --features random
+    - name: clippy
+      run: cargo clippy --no-default-features
+    - name: doc
+      run: cargo doc --no-default-features
   aarch64:
     runs-on: ubuntu-24.04-arm
     steps:

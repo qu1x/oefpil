@@ -1,3 +1,8 @@
+# Version 0.5.0 (unreleased)
+
+  * Add hidden bindings of `dpotri()`, `dgeqr()`, `dgemqr()`, `ddot()`, `dgemv()`, `dtrsm()`, and
+    `dtrsv()` to compare them against the pure Rust implementation of `oefpil`.
+
 # Version 0.4.0 (2026-10-31)
 
   * Import respective sources of OEFPIL [307ee4c] into [src] and patch them as follows:

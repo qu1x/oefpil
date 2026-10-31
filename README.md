@@ -55,21 +55,28 @@ and Software Tool for Fitting Nonlinear Functions to Correlated Data With Errors
 nanoindentation curve fitting and measurement uncertainty estimation”, [Precision Engineering
 85, 166-173 (2024)](https://doi.org/10.1016/j.precisioneng.2023.10.001).
 
-This crate provides a safe API to the [`oefpil-sys`] crate (see its system requirements) which
-statically links to the [C/Fortran library].
+This crate is a pure Rust implementation of the [C/Fortran library] without any system dependency.
+It works in [`no_std`] environments with an allocator. Its results agree with the
+[C/Fortran library], which the test suite compares against via the [`oefpil-sys`] crate.
 
 See the [release history](RELEASES.md) to keep track of the development.
 
+[`no_std`]: https://crates.io/categories/no-std
 [`oefpil-sys`]: https://crates.io/crates/oefpil-sys
 [C/Fortran library]: https://gitlab.com/cmi6014/oefpil
 
 ## Licenses
 
-Except as noted below, this work is dual-licensed under either [`MIT`] or [`Apache-2.0`] at your
-option. This means you can select the license you prefer. This dual-licensing approach is the
-de-facto standard in the Rust ecosystem. Copyrights in this work are retained by their contributors
-and no copyright assignment is required to contribute to this work. For full authorship information,
-see the individual files and the version control history.
+This work is dual-licensed under either [`MIT`] or [`Apache-2.0`] at your option. This means you can
+select the license you prefer. This dual-licensing approach is the de-facto standard in the Rust
+ecosystem. Copyrights in this work are retained by their contributors and no copyright assignment is
+required to contribute to this work. For full authorship information, see the individual files and
+the version control history.
+
+The algorithm in [src/oefpil.rs](src/oefpil.rs) and [src/tiled.rs](src/tiled.rs) is derived from the
+[C/Fortran library], which is licensed under [`MIT`] with copyright notice:
+
+Copyright © 2020 Czech Metrology Institute
 
 The works in [oefpil-sys](oefpil-sys) carry their own copyright notices and license terms.
 
