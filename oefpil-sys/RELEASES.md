@@ -16,6 +16,9 @@
       * Report convergence in the last allowed iteration as such instead of having reached the
         iteration limit.
   * Compute upper incomplete gamma function ratio directly in `dgami()` to keep its accuracy.
+  * Compute lower incomplete gamma function ratio directly in `dgami()` and evaluate the prefix of
+    both ratios without cancellation to improve accuracy for many degrees of freedom. This also
+    fixes a lower ratio of `1.0` for a billion degrees of freedom or more and removes `special`.
   * Use `c_char` for `dpotrf()` and `dtrmv()` to support targets where it is unsigned.
   * Correct documentation of `oefpil_tcm_full_set_tile_full()` which expects a column-major slice.
   * Correct documentation of `Mode` where `Mode::BlockDiagonal` encodes a block tile.

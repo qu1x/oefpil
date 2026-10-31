@@ -180,7 +180,7 @@ pub unsafe extern "C" fn dcdchi(chisq: f64, nu: f64, p: *mut f64, q: *mut f64, i
 pub unsafe extern "C" fn dgami(a: f64, x: f64, pans: *mut f64, qans: *mut f64, ierr: *mut c_long) {
     let (p, q) = if x >= 0.0 && a > 0.0 {
         if x < a + 1.0 {
-            let p = special::Gamma::inc_gamma(x, a);
+            let p = lower_inc_gamma(a, x);
             (p, 1.0 - p)
         } else {
             let q = upper_inc_gamma(a, x);
@@ -194,6 +194,58 @@ pub unsafe extern "C" fn dgami(a: f64, x: f64, pans: *mut f64, qans: *mut f64, i
         *qans = q;
         *ierr = q.is_nan().into();
     }
+}
+
+/// Half the logarithm of two times pi.
+const LN_SQRT_2PI: f64 = 0.918_938_533_204_672_7;
+
+/// Computes the difference between `ln(Gamma(a))` and its Stirling approximation.
+fn stirling_error(a: f64) -> f64 {
+    if a < 16.0 {
+        libm::lgamma(a) - ((a - 0.5).mul_add(a.ln(), -a) + LN_SQRT_2PI)
+    } else {
+        let square = a * a;
+        (1.0 / 12.0
+            - (1.0 / 360.0
+                - (1.0 / 1260.0 - (1.0 / 1680.0 - 1.0 / 1188.0 / square) / square) / square)
+                / square)
+            / a
+    }
+}
+
+/// Computes the logarithm of `x^a * exp(-x) / Gamma(a)`.
+///
+/// Evaluates it in terms of the relative deviation of `x` from `a` rather than directly as the
+/// latter subtracts terms growing with `a * ln(a)` and hence loses accuracy for large `a`.
+fn ln_prefix(a: f64, x: f64) -> f64 {
+    let deviation = (x - a) / a;
+    // Logarithm of `1 + deviation` minus `deviation`.
+    let difference = if deviation.abs() < 0.1 {
+        let mut series = 0.05;
+        for order in (2..20).rev() {
+            series = (-deviation).mul_add(series, 1.0 / f64::from(order));
+        }
+        -deviation * deviation * series
+    } else {
+        (x / a).ln() - deviation
+    };
+    a.mul_add(difference, 0.5 * a.ln()) - LN_SQRT_2PI - stirling_error(a)
+}
+
+/// Computes the lower incomplete gamma function ratio at `a` and `x` where `x < a + 1`.
+///
+/// Evaluates its series. Returns NaN if the series does not converge.
+fn lower_inc_gamma(a: f64, x: f64) -> f64 {
+    let (mut term, mut sum, mut denominator) = (1.0 / a, 1.0 / a, a);
+    for _ in 0..1_000_000u32 {
+        denominator += 1.0;
+        term *= x / denominator;
+        sum += term;
+        if term <= sum * f64::EPSILON / 16.0 {
+            return ln_prefix(a, x).exp() * sum;
+        }
+    }
+    f64::NAN
 }
 
 /// Computes the upper incomplete gamma function ratio at `a` and `x` where `x >= a + 1`.
@@ -222,8 +274,7 @@ fn upper_inc_gamma(a: f64, x: f64) -> f64 {
         let delta = upper * lower;
         fraction *= delta;
         if (delta - 1.0).abs() < f64::EPSILON {
-            let (ln_gamma, _sign) = special::Gamma::ln_gamma(a);
-            return (a.mul_add(x.ln(), -x) - ln_gamma).exp() * fraction;
+            return ln_prefix(a, x).exp() * fraction;
         }
     }
     f64::NAN

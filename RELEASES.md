@@ -15,6 +15,8 @@
     rather than possibly `AlgorithmError::IterationLimit`.
   * Succeed if a fit converges in the last allowed iteration instead of returning
     `AlgorithmError::IterationLimit`.
+  * Improve accuracy of `Report::chi_squared_p_value()` for many degrees of freedom and fix it
+    yielding `0.0` around the expected value for a billion degrees of freedom or more.
   * Fix `Algorithm::fit()` requiring one degree of freedom for a fully known covariance matrix but
     none for `Covariance::with_unknown_scale()` which yielded a NaN covariance matrix, as opposed to
     what `VariableError::InsufficientDegreesOfFreedom` documents.
