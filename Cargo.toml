@@ -44,7 +44,6 @@ members = ["oefpil-sys"]
 derive_more = { version = "2.0.1", default-features = false, features = ["display", "error", "from"] }
 faer = { version = "0.24.4", default-features = false }
 libm = "0.2.15"
-special = "0.11.4"
 
 [dev-dependencies]
 oefpil-sys = { path = "oefpil-sys" }
