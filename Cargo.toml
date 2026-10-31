@@ -85,3 +85,7 @@ doc-scrape-examples = true
 [[example]]
 name = "altimeter"
 doc-scrape-examples = true
+
+[[example]]
+name = "compass"
+doc-scrape-examples = true

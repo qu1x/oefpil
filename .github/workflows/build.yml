@@ -33,6 +33,7 @@ jobs:
       run: |
         cargo run --example sine
         cargo run --example altimeter
+        cargo run --example compass
     - name: clippy
       run: |
         cargo clippy --tests --examples
@@ -91,6 +92,7 @@ jobs:
       run: |
         cargo run --example sine
         cargo run --example altimeter
+        cargo run --example compass
   all-features:
     runs-on: ubuntu-latest
     steps:
@@ -116,6 +118,7 @@ jobs:
       run: |
         cargo run --example sine --all-features --features oefpil-sys/built-in
         cargo run --example altimeter --all-features --features oefpil-sys/built-in
+        cargo run --example compass --all-features --features oefpil-sys/built-in
     - name: clippy
       run: |
         cargo clippy --tests --examples --all-features --features oefpil-sys/built-in
@@ -143,6 +146,7 @@ jobs:
       run: |
         cargo run --example sine --all-features --features oefpil-sys/built-in
         cargo run --example altimeter --all-features --features oefpil-sys/built-in
+        cargo run --example compass --all-features --features oefpil-sys/built-in
     - name: clippy
       run: |
         cargo clippy --tests --examples --all-features --features oefpil-sys/built-in

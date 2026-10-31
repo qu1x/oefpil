@@ -194,6 +194,10 @@
 //!     all samples. Yields about the same sea level pressure with or without modeling this
 //!     correlation but ignoring it claims about three times the actual precision, confirmed via
 //!     Monte Carlo simulation.
+//!   * [`compass.rs`] -- Implicit model with correlation among variables -- Calibrates the
+//!     magnetometer of a drone by fitting an ellipsoid, which has no dependent variable, to readings
+//!     of a limited tilt range. Reports the vertical axis as being less well determined, confirmed
+//!     via Monte Carlo simulation.
 //!
 //! # Troubleshooting
 //!
@@ -216,6 +220,7 @@
 //!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
 //! [`altimeter.rs`]: ../src/altimeter/altimeter.rs.html
+//! [`compass.rs`]: ../src/compass/compass.rs.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
