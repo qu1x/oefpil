@@ -779,7 +779,7 @@ impl Distribution<'_> {
     ///
     /// ```
     /// use oefpil::{Covariance, Distribution, OefpilError};
-    /// use rand::Rng;
+    /// use rand::RngExt;
     /// use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
     /// use rand_distr::StandardNormal;
     ///

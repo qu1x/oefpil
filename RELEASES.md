@@ -33,6 +33,7 @@
   * Remove the limit on the sizes of matrices and hence `OefpilError::TryFromInt`.
   * Unwind panics of models through `Algorithm::fit()` instead of aborting the process.
   * Define `Criterion` and `Verbosity` in this crate. They are no longer re-exports.
+  * Bump dependencies.
 
 # Version 0.4.0 (2026-10-31)
 

@@ -41,16 +41,16 @@ rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex.html"]
 members = ["oefpil-sys"]
 
 [dependencies]
-derive_more = { version = "2.0.1", default-features = false, features = ["display", "error", "from"] }
+derive_more = { version = "2.1.1", default-features = false, features = ["display", "error", "from"] }
 faer = { version = "0.24.4", default-features = false, optional = true }
-libm = "0.2.15"
+libm = "0.2.16"
 
 [dev-dependencies]
 oefpil-sys = { path = "oefpil-sys" }
-rand = "0.9.1"
-rand_chacha = "0.9.0"
-rand_distr = "0.5.1"
-const-hex = "1.14.1"
+rand = "0.10.3"
+rand_chacha = "0.10.0"
+rand_distr = "0.6.0"
+const-hex = "1.19.3"
 
 [lints.rust]
 missing_docs = "forbid"

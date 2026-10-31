@@ -12,7 +12,7 @@ use oefpil::{
     Algorithm, AlgorithmError, Covariance, CovarianceError, Criterion, Distribution, Model,
     OefpilError, Parameter, Report, Variable, Verbosity,
 };
-use rand::Rng;
+use rand::RngExt;
 use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 use rand_distr::StandardNormal;
 
