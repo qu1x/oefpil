@@ -81,3 +81,7 @@ required-features = ["std"]
 [[example]]
 name = "sine"
 doc-scrape-examples = true
+
+[[example]]
+name = "altimeter"
+doc-scrape-examples = true

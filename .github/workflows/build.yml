@@ -30,7 +30,9 @@ jobs:
         cargo test
         cargo test --features faer
     - name: run
-      run: cargo run --example sine
+      run: |
+        cargo run --example sine
+        cargo run --example altimeter
     - name: clippy
       run: |
         cargo clippy --tests --examples
@@ -86,7 +88,9 @@ jobs:
         cargo test
         cargo test --features faer
     - name: run
-      run: cargo run --example sine
+      run: |
+        cargo run --example sine
+        cargo run --example altimeter
   all-features:
     runs-on: ubuntu-latest
     steps:
@@ -109,7 +113,9 @@ jobs:
     - name: test
       run: cargo test --all-features --features oefpil-sys/built-in
     - name: run
-      run: cargo run --example sine --all-features --features oefpil-sys/built-in
+      run: |
+        cargo run --example sine --all-features --features oefpil-sys/built-in
+        cargo run --example altimeter --all-features --features oefpil-sys/built-in
     - name: clippy
       run: |
         cargo clippy --tests --examples --all-features --features oefpil-sys/built-in
@@ -134,7 +140,9 @@ jobs:
     - name: test
       run: cargo test --all-features --features oefpil-sys/built-in
     - name: run
-      run: cargo run --example sine --all-features --features oefpil-sys/built-in
+      run: |
+        cargo run --example sine --all-features --features oefpil-sys/built-in
+        cargo run --example altimeter --all-features --features oefpil-sys/built-in
     - name: clippy
       run: |
         cargo clippy --tests --examples --all-features --features oefpil-sys/built-in

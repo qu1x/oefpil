@@ -189,6 +189,11 @@
 //!     and let $`P=(\chi_0,A_0)`$ be the phase and amplitude parameter of the explicit model
 //!     $`A=A_0\sin(\chi+\chi_0)`$. Eight observations $`v_i\sim V_i`$ with correlation coefficients
 //!     $`\C{V^I_i}{V^I_i}=0.5`$ among variables are sampled where $`i\in[1,8]`$ and $`I\in[1,2]`$.
+//!   * [`altimeter.rs`] -- Explicit model with correlation within a variable -- Calibrates a
+//!     barometric altimeter against GPS along a climb where the error of GPS is largely shared by
+//!     all samples. Yields about the same sea level pressure with or without modeling this
+//!     correlation but ignoring it claims about three times the actual precision, confirmed via
+//!     Monte Carlo simulation.
 //!
 //! # Troubleshooting
 //!
@@ -210,6 +215,7 @@
 //!   6. Adjust the [`Algorithm`] settings.
 //!
 //! [`sine.rs`]: ../src/sine/sine.rs.html
+//! [`altimeter.rs`]: ../src/altimeter/altimeter.rs.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
