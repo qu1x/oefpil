@@ -134,7 +134,7 @@ fn check_inf_nan(a: &[f64], location: &str, log: &mut Log) -> Option<Status> {
 /// and yields the optimum estimate.
 ///
 /// Both `x` and `xtrue` comprise the dependent variable if `model` is explicit.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 pub fn oefpil(
     model: Model,
     p: &mut [f64],

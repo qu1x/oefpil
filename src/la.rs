@@ -116,28 +116,28 @@ mod tests {
         }
     }
 
-    fn side_c(side: Side) -> *const c_char {
+    const fn side_c(side: Side) -> *const c_char {
         match side {
             Side::Left => c"L".as_ptr(),
             Side::Right => c"R".as_ptr(),
         }
     }
 
-    fn uplo_c(uplo: Uplo) -> *const c_char {
+    const fn uplo_c(uplo: Uplo) -> *const c_char {
         match uplo {
             Uplo::Lower => c"L".as_ptr(),
             Uplo::Upper => c"U".as_ptr(),
         }
     }
 
-    fn trans_c(trans: Trans) -> *const c_char {
+    const fn trans_c(trans: Trans) -> *const c_char {
         match trans {
             Trans::No => c"N".as_ptr(),
             Trans::Yes => c"T".as_ptr(),
         }
     }
 
-    fn diag_c(diag: Diag) -> *const c_char {
+    const fn diag_c(diag: Diag) -> *const c_char {
         match diag {
             Diag::No => c"N".as_ptr(),
             Diag::Unit => c"U".as_ptr(),

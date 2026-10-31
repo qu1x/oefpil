@@ -115,7 +115,7 @@ mod tests {
     /// Reference values are exact p-values of closed forms evaluated with 80 decimal digits, which
     /// exist as `nu / 2` is an integer or half-integer.
     #[test]
-    #[allow(clippy::unreadable_literal)]
+    #[allow(clippy::excessive_precision, clippy::unreadable_literal)]
     fn agrees_with_exact_values() {
         #[rustfmt::skip]
         let table = [

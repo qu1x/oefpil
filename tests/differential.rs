@@ -666,9 +666,8 @@ fn every_criterion_agrees() {
 
 #[test]
 fn unknown_scale_agrees() {
-    for (name, problem) in suite() {
+    for (name, mut problem) in suite() {
         if problem.samples > problem.parameter.len() {
-            let mut problem = problem.clone();
             problem.unknown_scale = true;
             problem.assert_agreement(1e-7, name);
         }
