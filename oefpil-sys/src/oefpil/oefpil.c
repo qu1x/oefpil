@@ -1038,7 +1038,7 @@ void oefpil(fitfunc_oefpil *fcn, void *data, int fun_mode,
         iter_num++;
         chi2prev = chi2_;
 
-        if (iter_num >= maxit)
+        if (status == OEFPIL_STATUS_OK && iter_num >= maxit)
             status = OEFPIL_MAX_ITER_REACHED;
 
     } /* end of main loop */

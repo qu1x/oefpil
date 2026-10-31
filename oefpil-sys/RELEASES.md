@@ -13,6 +13,8 @@
       * Fix segmentation fault if `OEFPIL_PRINTFORMAT` is defined. It is ignored unless it comprises
         up to three digits followed by one of `eEfFgG`.
       * Clear block tile when setting diagonal tile.
+      * Report convergence in the last allowed iteration as such instead of having reached the
+        iteration limit.
   * Compute upper incomplete gamma function ratio directly in `dgami()` to keep its accuracy.
   * Use `c_char` for `dpotrf()` and `dtrmv()` to support targets where it is unsigned.
   * Correct documentation of `oefpil_tcm_full_set_tile_full()` which expects a column-major slice.

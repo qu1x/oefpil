@@ -13,6 +13,8 @@
     variance instead of zero, which yields the same estimates along with a finite chi-squared.
   * Return `AlgorithmError::NumericalError` as soon as a model evaluates to a non-finite value
     rather than possibly `AlgorithmError::IterationLimit`.
+  * Succeed if a fit converges in the last allowed iteration instead of returning
+    `AlgorithmError::IterationLimit`.
   * Fix `Algorithm::fit()` requiring one degree of freedom for a fully known covariance matrix but
     none for `Covariance::with_unknown_scale()` which yielded a NaN covariance matrix, as opposed to
     what `VariableError::InsufficientDegreesOfFreedom` documents.

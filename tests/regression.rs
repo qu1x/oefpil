@@ -3,8 +3,8 @@
 #![allow(clippy::float_cmp, clippy::suboptimal_flops)]
 
 use oefpil::{
-    Algorithm, Covariance, Logfile, Model, OefpilError, Parameter, Report, Variable, VariableError,
-    read_matrix,
+    Algorithm, AlgorithmError, Covariance, Logfile, Model, OefpilError, Parameter, Report,
+    Variable, VariableError, read_matrix,
 };
 use std::{
     fs,
@@ -236,5 +236,38 @@ fn logfile_path_with_nul_byte_is_error() -> Result<(), OefpilError> {
         panic!("expected I/O error");
     };
     assert_eq!(ErrorKind::InvalidInput, error.kind());
+    Ok(())
+}
+
+#[test]
+fn converging_in_last_allowed_iteration_succeeds() -> Result<(), OefpilError> {
+    let covariance = diagonal(4)?;
+    let fit = |iteration_limit| {
+        Algorithm {
+            iteration_limit,
+            ..Algorithm::default()
+        }
+        .fit(
+            LINE,
+            &mut Variable {
+                sample: &[1.0, 2.0, 3.0, 4.0, 3.1, 4.9, 7.1, 8.9],
+                mean: &mut [],
+                covariance: &covariance,
+            },
+            &mut Parameter {
+                mean: &mut [0.9, 2.1],
+                covariance: &mut [0f64; 4],
+                ..Parameter::default()
+            },
+            Logfile::default(),
+        )
+    };
+    let iterations = fit(100)?.iterations;
+    assert!(iterations >= 2);
+    assert_eq!(fit(iterations)?.iterations, iterations);
+    assert!(matches!(
+        fit(iterations - 1),
+        Err(OefpilError::Algorithm(AlgorithmError::IterationLimit))
+    ));
     Ok(())
 }

@@ -254,6 +254,8 @@ pub struct Algorithm {
     pub tolerance: f64,
     /// Iteration limit.
     ///
+    /// A fit which converges in the last allowed iteration succeeds.
+    ///
     /// Default is `100`.
     pub iteration_limit: usize,
     /// Log verbosity.
