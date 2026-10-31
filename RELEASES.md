@@ -33,6 +33,7 @@
   * Close custom `Logfile` on conversion errors and adhere to aliasing rules in `Algorithm::fit()`.
   * Return `OefpilError::Io` instead of panicking if the path of a custom `Logfile` has a NUL byte.
   * Correct documentation (e.g., definition of `Report::chi_squared`, aborting panics in models).
+  * Update KaTeX.
   * Bump `oefpil-sys`.
 
 # Version 0.3.1 (2025-10-16)
