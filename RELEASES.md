@@ -8,6 +8,8 @@
   * Approximate empty `Model::dfdx` and `Model::dfdp` via central differences, so a model can be
     fitted without deriving it. Remove `Model::validate()`, `ModelError`, and `OefpilError::Model`
     as these were about empty derivatives. Add `ParameterError::EmptyMean`.
+  * Add `Model::predict()` yielding the value of an explicit model at new samples along with its
+    deviation due to the uncertainty of the fitted parameters.
   * Add examples `altimeter.rs`, `compass.rs`, `supernovae.rs`, and `rar.rs`.
   * Support `no_std` environments with an allocator by disabling the new default feature `std`,
     which gates `Logfile` and `read_matrix()`.

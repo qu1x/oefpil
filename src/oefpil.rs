@@ -89,7 +89,7 @@ fn convergence_check(
 
 /// Returns the magnitude below which a step of a central difference stops shrinking with `values`,
 /// which is one for `values` without a magnitude.
-fn step_floor(values: impl Iterator<Item = f64>) -> f64 {
+pub fn step_floor(values: impl Iterator<Item = f64>) -> f64 {
     let largest = values.fold(0f64, |largest, value| largest.max(value.abs()));
     if largest > 0.0 { 1e-3 * largest } else { 1.0 }
 }
@@ -99,7 +99,7 @@ fn step_floor(values: impl Iterator<Item = f64>) -> f64 {
 ///
 /// Its error of about the fourth power of the fifth root of the machine epsilon is well below the
 /// default tolerance whereas the one of second order is about as large, which delays convergence.
-fn central_difference(value: f64, floor: f64, mut f: impl FnMut(f64) -> f64) -> f64 {
+pub fn central_difference(value: f64, floor: f64, mut f: impl FnMut(f64) -> f64) -> f64 {
     let step = libm::pow(f64::EPSILON, 0.2) * value.abs().max(floor);
     // The difference of what is representable rather than the intended step.
     let step = (value + step) - value;

@@ -147,7 +147,7 @@
 //!
 //! This crate is a pure Rust implementation of the [C/Fortran library] without any system
 //! dependency. It works in [`no_std`] environments with an allocator. The linear algebra is an
-//! implementation detail which does not surface in the API. The API comprises six structures
+//! implementation detail which does not surface in the API. The API comprises seven structures
 //! *with public members* of which many can be left at their [`Default`] values:
 //!
 //!   * [`Algorithm`] for configuring the fitting algorithm (e.g., convergence [`Criterion`]).
@@ -161,6 +161,8 @@
 //!     $`\varsigma`$ and for the correlation matrix $`\C{P}{P}`$. The initial estimates $`\lambda`$
 //!     will be overwritten by the optimum estimates $`\hat\lambda`$.
 //!   * [`Report`] for reporting the number of iterations and statistical information.
+//!   * [`Prediction`] for the value of an explicit model at new samples with its uncertainty due to
+//!     the parameters (see [`Model::predict()`]).
 //!   * [`Distribution`] for sampling observations of a [`Covariance`] matrix (e.g., for a Monte
 //!     Carlo simulation).
 //!
@@ -200,8 +202,8 @@
 //!   * [`altimeter.rs`] -- Explicit model with correlation within a variable -- Calibrates a
 //!     barometric altimeter against GPS along a climb where the error of GPS is largely shared by
 //!     all samples. Yields about the same sea level pressure with or without modeling this
-//!     correlation but ignoring it claims about three times the actual precision, confirmed via
-//!     Monte Carlo simulation.
+//!     correlation but ignoring it claims about three times the actual precision, and predicts
+//!     altitude with its uncertainty, confirmed via Monte Carlo simulation.
 //!   * [`compass.rs`] -- Implicit model with correlation among variables -- Calibrates the
 //!     magnetometer of a drone by fitting an ellipsoid, which has no dependent variable, to
 //!     readings of a limited tilt range. Reports the vertical axis as being less well determined,
@@ -260,7 +262,7 @@ use alloc::{vec, vec::Vec};
 use core::fmt;
 use derive_more::{Display, Error, From};
 use log::{Discard, Log};
-use oefpil::{Status, oefpil};
+use oefpil::{Status, central_difference, oefpil, step_floor};
 #[cfg(feature = "std")]
 use std::{
     fs::OpenOptions,
@@ -610,6 +612,109 @@ impl Model<'_> {
     pub fn variables(&self) -> usize {
         self.dfdx.len() + usize::from(!self.implicit)
     }
+    /// Predicts the dependent variable at independent variables `x` after a fit.
+    ///
+    /// Propagates the fitted [`Parameter::covariance`] matrix through the derivative vector
+    /// $`df/dP`$ at `x`, approximated if [`Self::dfdp`] is empty. So the correlation among
+    /// parameters is taken into account:
+    ///
+    /// ```math
+    /// \varsigma^2_f=\frac{df}{dP}\c{P}{P}\frac{df}{dP}^T
+    /// ```
+    ///
+    /// This is the uncertainty of the fitted curve at `x` given as if free of errors. It does not
+    /// comprise the errors of a new observation at `x` which would have to be added in quadrature.
+    /// A deviation is only as valid as the linearization of the model across the uncertainty of its
+    /// parameters.
+    ///
+    /// ```
+    /// use oefpil::{Algorithm, Covariance, Model, Parameter, Variable};
+    ///
+    /// # fn main() -> Result<(), oefpil::OefpilError> {
+    /// let model = Model {
+    ///     fx: &|x, p| p[0] + p[1] * x[0],
+    ///     dfdx: &[],
+    ///     dfdp: &[],
+    ///     implicit: false,
+    /// };
+    /// let covariance = Covariance::new_diagonal(4, 2)
+    ///     .with_tile(0, 0, &[1e-4; 4])?
+    ///     .with_tile(1, 1, &[1e-2; 4])?;
+    /// let mut variable = Variable {
+    ///     sample: &[0.0, 1.0, 2.0, 3.0, 1.0, 3.1, 4.9, 7.0],
+    ///     mean: &mut [],
+    ///     covariance: &covariance,
+    /// };
+    /// let mut parameter = Parameter {
+    ///     mean: &mut [1.0, 1.0],
+    ///     covariance: &mut [0.0; 4],
+    ///     ..Parameter::default()
+    /// };
+    /// Algorithm::default().fit(model, &mut variable, &mut parameter)?;
+    /// // Least uncertain within the data and more so the farther it extrapolates.
+    /// let within = model.predict(&[1.5], &parameter)?;
+    /// let beyond = model.predict(&[10.0], &parameter)?;
+    /// assert!((within.mean - 4.0).abs() < 0.1 && (beyond.mean - 21.0).abs() < 0.5);
+    /// assert!(within.deviation < beyond.deviation);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OefpilError`] on failure. A model yielding non-finite values at `x` is no failure
+    /// and yields non-finite values in the [`Prediction`].
+    pub fn predict(&self, x: &[f64], parameter: &Parameter) -> Result<Prediction, OefpilError> {
+        parameter.validate(*self)?;
+        if self.implicit {
+            return Err(PredictionError::ImplicitModel.into());
+        }
+        if x.is_empty() || (!self.dfdx.is_empty() && x.len() != self.dfdx.len()) {
+            return Err(PredictionError::MismatchingVariable.into());
+        }
+        let p = &*parameter.mean;
+        let covariance = &*parameter.covariance;
+        let parameters = p.len();
+        let mut pi = p.to_vec();
+        let gradient = (0..parameters)
+            .map(|index| {
+                self.dfdp.get(index).map_or_else(
+                    || {
+                        let deviation = libm::sqrt(covariance[index * parameters + index]);
+                        let floor = step_floor([p[index], deviation].into_iter());
+                        let derivative = central_difference(p[index], floor, |value| {
+                            pi[index] = value;
+                            (self.fx)(x, &pi)
+                        });
+                        pi[index] = p[index];
+                        derivative
+                    },
+                    |dfdp| dfdp(x, p),
+                )
+            })
+            .collect::<Vec<f64>>();
+        let mut variance = 0f64;
+        for (row, row_gradient) in gradient.iter().enumerate() {
+            for (column, column_gradient) in gradient.iter().enumerate() {
+                variance += row_gradient * covariance[row * parameters + column] * column_gradient;
+            }
+        }
+        // Rounding can yield a negative variance if the deviation is about zero.
+        let variance = if variance < 0.0 { 0.0 } else { variance };
+        Ok(Prediction {
+            mean: (self.fx)(x, p),
+            deviation: libm::sqrt(variance),
+        })
+    }
+}
+
+/// Dependent variable predicted by [`Model::predict()`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Prediction {
+    /// Value $`f(x;\hat\lambda)`$ of the model at the fitted parameter mean vector.
+    pub mean: f64,
+    /// Standard deviation $`\varsigma_f`$ of this value due to the uncertainty of the parameters.
+    pub deviation: f64,
 }
 
 /// Mathematical expression in independent variables `x` and parameters `p`, in this order.
@@ -1631,6 +1736,9 @@ pub enum OefpilError {
     /// Invalid parameter.
     #[display("invalid parameter")]
     Parameter(#[error(source)] ParameterError),
+    /// Invalid prediction.
+    #[display("invalid prediction")]
+    Prediction(#[error(source)] PredictionError),
     /// Algorithm error.
     #[display("algorithm error")]
     Algorithm(#[error(source)] AlgorithmError),
@@ -1720,6 +1828,18 @@ pub enum ParameterError {
     /// Non-empty [`Parameter::correlation`] requires non-empty  [`Parameter::deviation`].
     #[display("non-empty correlation matrix slice requires non-empty deviation vector slice")]
     CorrelationRequiresDeviation,
+}
+
+/// Prediction errors.
+#[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
+pub enum PredictionError {
+    /// An implicit [`Model`] has no dependent variable to predict.
+    #[display("implicit model has no dependent variable")]
+    ImplicitModel,
+    /// Mismatching number of independent variables.
+    #[display("mismatching number of independent variables")]
+    MismatchingVariable,
 }
 
 /// Algorithm errors.

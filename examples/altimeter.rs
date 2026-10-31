@@ -4,11 +4,15 @@
 //! pilot sets on an altimeter. Both variables are noisy but the error of GPS drifts slowly and is
 //! hence largely shared by all samples of a flight. More samples do not average out what they
 //! share, which is why ignoring this correlation yields about the same estimate but claims a
-//! precision the flight cannot deliver. This example confirms both via Monte Carlo simulation.
+//! precision the flight cannot deliver. The same holds for the altitude predicted at a pressure,
+//! for which `Model::predict()` propagates the fit including the correlation among its two
+//! parameters. This example confirms all of it via Monte Carlo simulation.
 
 #![allow(clippy::suboptimal_flops)]
 
-use oefpil::{Algorithm, Covariance, Distribution, Model, OefpilError, Parameter, Variable};
+use oefpil::{
+    Algorithm, Covariance, Distribution, Model, OefpilError, Parameter, Prediction, Variable,
+};
 use rand::Rng;
 use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 use rand_distr::StandardNormal;
@@ -27,8 +31,14 @@ const MODEL: Model = Model {
     implicit: false,
 };
 
-/// Fits [`MODEL`] returning the parameter mean and deviation vector.
-fn fit(sample: &[f64], covariance: &Covariance) -> Result<([f64; 2], [f64; 2]), OefpilError> {
+/// Pressure in hPa at which altitude is predicted.
+const PRESSURE: f64 = 900.0;
+
+/// Fits [`MODEL`] returning the parameter mean and deviation vector and the predicted altitude.
+fn fit(
+    sample: &[f64],
+    covariance: &Covariance,
+) -> Result<([f64; 2], [f64; 2], Prediction), OefpilError> {
     // Mediocre estimates of parameter means as they would be guessed.
     let mut mean = [1000.0, 40_000.0];
     let mut deviation = [0f64; 2];
@@ -44,7 +54,8 @@ fn fit(sample: &[f64], covariance: &Covariance) -> Result<([f64; 2], [f64; 2]), 
         correlation: &mut [0f64; 4],
     };
     Algorithm::default().fit(MODEL, &mut variable, &mut parameter)?;
-    Ok((mean, deviation))
+    let prediction = MODEL.predict(&[PRESSURE], &parameter)?;
+    Ok((mean, deviation, prediction))
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -87,14 +98,22 @@ fn main() -> Result<(), OefpilError> {
     let mut squared_error = [0f64; 2];
     let mut reported = [0f64; 2];
     let mut covered = [0u32; 2];
+    let altitude = (MODEL.fx)(&[PRESSURE], &p_mean);
+    let mut altitude_squared_error = [0f64; 2];
+    let mut altitude_reported = [0f64; 2];
+    let mut altitude_covered = [0u32; 2];
     for _ in 0..flights {
         distribution.sample(|| csprng.sample(StandardNormal))?;
         for (way, covariance) in [covariance, ignorant].into_iter().enumerate() {
-            let (mean, deviation) = fit(distribution.sample, covariance)?;
+            let (mean, deviation, prediction) = fit(distribution.sample, covariance)?;
             let error = mean[0] - p_mean[0];
             squared_error[way] += error * error;
             reported[way] += deviation[0];
             covered[way] += u32::from(error.abs() <= 1.96 * deviation[0]);
+            let error = prediction.mean - altitude;
+            altitude_squared_error[way] += error * error;
+            altitude_reported[way] += prediction.deviation;
+            altitude_covered[way] += u32::from(error.abs() <= 1.96 * prediction.deviation);
         }
     }
     let flights = f64::from(flights);
@@ -114,6 +133,19 @@ fn main() -> Result<(), OefpilError> {
             coverage[way] * 100.0,
         );
     }
+    let altitude_actual = altitude_squared_error.map(|error| (error / flights).sqrt());
+    let altitude_reported = altitude_reported.map(|reported| reported / flights);
+    let altitude_coverage = altitude_covered.map(|covered| f64::from(covered) / flights);
+    println!("altitude predicted at {PRESSURE} hPa of these flights:");
+    for (way, name) in ["modeled", "ignored"].into_iter().enumerate() {
+        println!(
+            "  correlation {name}: actual error {:.2} m, reported error {:.2} m, \
+             95 % interval holds true value in {:.1} %",
+            altitude_actual[way],
+            altitude_reported[way],
+            altitude_coverage[way] * 100.0,
+        );
+    }
     // Both ways yield about the same estimate as their actual errors agree.
     assert!((actual[0] - actual[1]).abs() < 0.01);
     // Modeling the correlation reports the actual error and its interval holds what it claims.
@@ -122,5 +154,11 @@ fn main() -> Result<(), OefpilError> {
     // Ignoring it claims about three times the precision and its interval is wrong half the time.
     assert!(actual[1] / reported[1] > 2.5);
     assert!((0.45..0.55).contains(&coverage[1]));
+    // The same holds for the predicted altitude, for which ignoring it claims even more precision.
+    assert!((altitude_actual[0] - altitude_actual[1]).abs() < 0.1);
+    assert!((altitude_reported[0] - altitude_actual[0]).abs() < 0.2);
+    assert!((0.93..0.97).contains(&altitude_coverage[0]));
+    assert!(altitude_actual[1] / altitude_reported[1] > 4.0);
+    assert!(altitude_coverage[1] < 0.4);
     Ok(())
 }
