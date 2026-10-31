@@ -808,6 +808,11 @@ mod tests {
                         actual[pivot * n + pivot] = bad;
                         let mut expected = actual.clone();
                         let info = dpotrf(uplo, n, &mut actual, n);
+                        // Reported by the reference but not by every implementation (e.g., OpenBLAS).
+                        if bad.is_nan() {
+                            assert_eq!(pivot + 1, info, "n {n} {uplo:?} pivot {pivot} bad {bad}");
+                            continue;
+                        }
                         let mut expected_info = 0;
                         unsafe {
                             sys::dpotrf(
