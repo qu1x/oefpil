@@ -18,6 +18,10 @@
 //! also has an independent error of `0.01` dex. Orthogonal distance regression handles errors in
 //! both variables but cannot express this correlation.
 //!
+//! As galaxies do not share errors with each other, `Covariance::new_grouped()` with a group per
+//! galaxy fits this in about ten milliseconds, whereas `Covariance::new_block_diagonal()` takes
+//! seconds and hundreds of megabytes for the same result.
+//!
 //! # The result
 //!
 //! ```text
@@ -61,14 +65,12 @@
 //!
 //! # How to run it
 //!
-//! Run the fits, optionally followed by the simulations which take minutes:
+//! Run the fits, optionally followed by the simulations:
 //!
 //! ```text
-//! cargo run --features faer --example rar
-//! cargo run --features faer --example rar -- target/sparc 300
+//! cargo run --example rar
+//! cargo run --example rar -- target/sparc 300
 //! ```
-//!
-//! Feature `faer` is optional and about three times faster here.
 //!
 //! The data is not part of this crate as its release does not state a license. If you use it, cite
 //! [Lelli et al. (2016)] as requested by <https://astroweb.case.edu/SPARC>. The first run downloads
@@ -85,13 +87,12 @@
     clippy::too_many_lines
 )]
 
-use oefpil::{Algorithm, Covariance, Model, Parameter, Variable};
+use oefpil::{Algorithm, Covariance, Model, OefpilError, Parameter, Variable};
 use rand::Rng;
 use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 use rand_distr::StandardNormal;
 use std::{
     collections::HashMap, error::Error, f64::consts::LN_10, fs, path::Path, process::Command,
-    thread,
 };
 
 /// Mass-to-light ratios of disks and bulges in solar units adopted by the reference.
@@ -228,12 +229,7 @@ fn fit_model(model: Model, sample: &[f64], covariance: &Covariance) -> Result<Fi
         covariance: &mut [0.0],
         correlation: &mut [0.0],
     };
-    // The default tolerance needs about twice the iterations for digits which are not shown.
-    let algorithm = Algorithm {
-        tolerance: 1e-6,
-        ..Algorithm::default()
-    };
-    let report = algorithm.fit(model, &mut variable, &mut parameter)?;
+    let report = Algorithm::default().fit(model, &mut variable, &mut parameter)?;
     Ok(Fit {
         scale: mean[0],
         deviation: deviation[0],
@@ -341,22 +337,48 @@ fn published(table: &str) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     (sample, square(1), square(3))
 }
 
-/// Covariance matrix tiles of the expected and observed accelerations.
-fn tiles(points: &[Point], correlated: bool, scatter: f64) -> (Vec<f64>, Vec<f64>) {
-    let samples = points.len();
+/// Covariance matrix of the expected and observed accelerations whose errors are shared within each
+/// galaxy.
+fn correlated(points: &[Point], scatter: f64) -> Result<Covariance, OefpilError> {
     let stars = MASS_TO_LIGHT_ERROR / LN_10;
-    let (mut x_block, mut y_block) = (vec![0f64; samples * samples], vec![0f64; samples * samples]);
-    for (row, a) in points.iter().enumerate() {
-        for (column, b) in points.iter().enumerate() {
-            if a.galaxy == b.galaxy && (correlated || row == column) {
-                x_block[row * samples + column] = a.stars * b.stars * stars * stars;
-                y_block[row * samples + column] = a.y_shared * b.y_shared;
+    let galaxies = || points.chunk_by(|a, b| a.galaxy == b.galaxy);
+    let groups = galaxies().map(<[Point]>::len).collect::<Vec<usize>>();
+    let (mut x_tile, mut y_tile) = (Vec::new(), Vec::new());
+    for galaxy in galaxies() {
+        for (row, a) in galaxy.iter().enumerate() {
+            for (column, b) in galaxy.iter().enumerate() {
+                let (x_own, y_own) = if row == column {
+                    (
+                        EXPECTED_ERROR * EXPECTED_ERROR,
+                        a.y_error * a.y_error + scatter * scatter,
+                    )
+                } else {
+                    (0.0, 0.0)
+                };
+                x_tile.push(a.stars * b.stars * stars * stars + x_own);
+                y_tile.push(a.y_shared * b.y_shared + y_own);
             }
         }
-        x_block[row * samples + row] += EXPECTED_ERROR * EXPECTED_ERROR;
-        y_block[row * samples + row] += a.y_error * a.y_error + scatter * scatter;
     }
-    (x_block, y_block)
+    Covariance::new_grouped(&groups, 2)
+        .with_tile(0, 0, &x_tile)?
+        .with_tile(1, 1, &y_tile)
+}
+
+/// Covariance matrix of the same variances as [`correlated()`] but with independent errors.
+fn independent(points: &[Point], scatter: f64) -> Result<Covariance, OefpilError> {
+    let stars = MASS_TO_LIGHT_ERROR / LN_10;
+    let x_tile = points
+        .iter()
+        .map(|point| (point.stars * stars).powi(2) + EXPECTED_ERROR * EXPECTED_ERROR)
+        .collect::<Vec<f64>>();
+    let y_tile = points
+        .iter()
+        .map(|point| point.y_shared.powi(2) + point.y_error.powi(2) + scatter * scatter)
+        .collect::<Vec<f64>>();
+    Covariance::new_diagonal(points.len(), 2)
+        .with_tile(0, 0, &x_tile)?
+        .with_tile(1, 1, &y_tile)
 }
 
 /// Prints a row of results named `name`.
@@ -400,55 +422,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|point| point.x)
         .chain(points.iter().map(|point| point.y))
         .collect::<Vec<f64>>();
-    let (x_block, y_block) = tiles(&points, true, SCATTER);
-    let correlated = Covariance::new_block_diagonal(samples, 2)
-        .with_tile(0, 0, &x_block)?
-        .with_tile(1, 1, &y_block)?;
-    let diagonal = |block: &[f64]| {
-        (0..samples)
-            .map(|row| block[row * samples + row])
-            .collect::<Vec<f64>>()
-    };
-    let (x_diagonal, y_diagonal) = (diagonal(&x_block), diagonal(&y_block));
-    let independent = Covariance::new_diagonal(samples, 2)
-        .with_tile(0, 0, &x_diagonal)?
-        .with_tile(1, 1, &y_diagonal)?;
-    let correlated_fit = fit(&sample, &correlated)?;
-    let independent_fit = fit(&sample, &independent)?;
+    let shared = correlated(&points, SCATTER)?;
+    let separate = independent(&points, SCATTER)?;
+    let correlated_fit = fit(&sample, &shared)?;
+    let independent_fit = fit(&sample, &separate)?;
     fit_row("rotation curves, correlated:", &correlated_fit);
     fit_row("rotation curves, independent:", &independent_fit);
     // Compare with the published value of the same curve without external field effect.
-    let (x_block, y_block) = tiles(&points, true, 0.035);
-    let covariance = Covariance::new_block_diagonal(samples, 2)
-        .with_tile(0, 0, &x_block)?
-        .with_tile(1, 1, &y_block)?;
-    let simple_fit = fit_model(SIMPLE, &sample, &covariance)?;
+    let simple_fit = fit_model(SIMPLE, &sample, &correlated(&points, 0.035)?)?;
     row("Desmond (2023), same curve:", "1.070 +- 0.032");
     fit_row("rotation curves, same curve:", &simple_fit);
     // The published systematic uncertainty represents a normalization of the mass-to-light ratio.
     let mut moved = [[0f64; 2]; 2];
     for (index, factor) in [0.8, 1.2].into_iter().enumerate() {
         let points = read(directory, MASS_TO_LIGHT.map(|ratio| ratio * factor))?;
-        let (x_block, y_block) = tiles(&points, true, SCATTER);
         let sample = points
             .iter()
             .map(|point| point.x)
             .chain(points.iter().map(|point| point.y))
             .collect::<Vec<f64>>();
-        let covariance = Covariance::new_block_diagonal(points.len(), 2)
-            .with_tile(0, 0, &x_block)?
-            .with_tile(1, 1, &y_block)?;
-        let correlated_fit = fit(&sample, &covariance)?;
-        let (x_block, y_block) = tiles(&points, false, SCATTER);
-        let diagonal = |block: &[f64]| {
-            (0..points.len())
-                .map(|row| block[row * points.len() + row])
-                .collect::<Vec<f64>>()
-        };
-        let covariance = Covariance::new_diagonal(points.len(), 2)
-            .with_tile(0, 0, &diagonal(&x_block))?
-            .with_tile(1, 1, &diagonal(&y_block))?;
-        let independent_fit = fit(&sample, &covariance)?;
+        let correlated_fit = fit(&sample, &correlated(&points, SCATTER)?)?;
+        let independent_fit = fit(&sample, &independent(&points, SCATTER)?)?;
         row(
             &format!("mass-to-light ratios times {factor}:"),
             &format!(
@@ -504,30 +498,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             sample
         })
         .collect::<Vec<Vec<f64>>>();
-    // Fit them in parallel as the fits with correlated errors take long. More than four threads
-    // gain little or even slow down, presumably as dense matrices saturate the memory bandwidth.
-    let threads = thread::available_parallelism()?.get().min(4);
-    let fits = thread::scope(|scope| {
-        let mut workers = Vec::new();
-        for chunk in simulated.chunks(simulated.len().div_ceil(threads)) {
-            let covariances = [&correlated, &independent];
-            workers.push(scope.spawn(move || {
-                chunk
-                    .iter()
-                    .map(|sample| covariances.map(|covariance| fit(sample, covariance).unwrap()))
-                    .collect::<Vec<[Fit; 2]>>()
-            }));
-        }
-        workers
-            .into_iter()
-            .flat_map(|worker| worker.join().unwrap())
-            .collect::<Vec<[Fit; 2]>>()
-    });
     let mut estimates = [Vec::new(), Vec::new()];
     let mut reported = [0f64; 2];
     let mut covered = [0u32; 2];
-    for fits in &fits {
-        for (way, fit) in fits.iter().enumerate() {
+    for sample in &simulated {
+        for (way, covariance) in [&shared, &separate].into_iter().enumerate() {
+            let fit = fit(sample, covariance)?;
             estimates[way].push(fit.scale);
             reported[way] += fit.deviation;
             covered[way] += u32::from((fit.scale - truth).abs() <= 1.96 * fit.deviation);

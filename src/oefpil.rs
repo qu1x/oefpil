@@ -16,9 +16,9 @@ use crate::{
     },
     log::{Log, c_float},
     tiled::{
-        Mode, Tile, dgetmv_blockdiag, dgetmv_diag, dgetmv_diags, dgetmv_full, dpottrf_blockdiag,
-        dpottrf_diag, dpottrf_diags, dpottrf_full, dtrtsv_blockdiag, dtrtsv_diag, dtrtsv_diags,
-        dtrtsv_full,
+        Mode, Tile, dgetmv_blockdiag, dgetmv_diag, dgetmv_diags, dgetmv_full, dgetmv_grouped,
+        dpottrf_blockdiag, dpottrf_diag, dpottrf_diags, dpottrf_full, dpottrf_grouped,
+        dtrtsv_blockdiag, dtrtsv_diag, dtrtsv_diags, dtrtsv_full, dtrtsv_grouped, spans,
     },
 };
 use alloc::{vec, vec::Vec};
@@ -145,6 +145,7 @@ pub fn oefpil(
     k: &[f64],
     tiling: Mode,
     tilemap: &[Tile],
+    groups: &[usize],
     maxit: usize,
     tol: f64,
     conv_crit: Criterion,
@@ -210,10 +211,19 @@ pub fn oefpil(
     let mut xi = vec![0f64; nv];
 
     // M11 is diagonal for some modes and hence has an array of its own, otherwise the factor LM
-    // replaces it.
+    // replaces it. It has one block per group of samples, which is a single one unless grouped.
     let diagonal = matches!(tiling, Mode::Diagonal | Mode::Diagonals);
-    let mut m11 = vec![0f64; if diagonal { n } else { n * n }];
+    let whole = [n];
+    let blocks = if tiling == Mode::Grouped {
+        groups
+    } else {
+        &whole
+    };
+    let m11_fields = blocks.iter().map(|&block| block * block).sum();
+    let mut m11 = vec![0f64; if diagonal { n } else { m11_fields }];
     let mut lm = vec![0f64; if diagonal { n } else { 0 }];
+    let largest = groups.iter().copied().max().unwrap_or(0);
+    let mut lk_work = vec![0f64; nve * largest];
 
     let mut t = dgeqr_t(n, np);
     let mut work = workspace(dgemqr_work(Side::Left, Trans::Yes, n, 1).or(dgemqr_work(
@@ -230,6 +240,7 @@ pub fn oefpil(
         Mode::BlockDiagonal => dpottrf_blockdiag(n, nve, &mut lk),
         Mode::Diagonals => dpottrf_diags(n, nve, &mut lk),
         Mode::Full => dpottrf_full(n, nve, &mut lk),
+        Mode::Grouped => dpottrf_grouped(groups, nve, &mut lk),
     };
     if lpkinfo != 0 {
         status = Status::ErrorLapack;
@@ -330,6 +341,27 @@ pub fn oefpil(
                     }
                 }
             }
+            Mode::Grouped => {
+                for ((m, start, offset), (_, _, m11_offset)) in
+                    spans(groups, nve).zip(spans(groups, 1))
+                {
+                    let m11 = &mut m11[m11_offset..];
+                    for jj in 0..nve {
+                        for ii in 0..nve {
+                            if tilemap[jj * nve + ii] != Tile::None {
+                                let b1_ii = &b1_diags[ii * n + start..];
+                                let b1_jj = &b1_diags[jj * n + start..];
+                                let k_ = &k[offset + jj * nve * m * m + ii * m..];
+                                for j in 0..m {
+                                    for i in 0..m {
+                                        m11[j * m + i] += b1_ii[i] * k_[j * m * nve + i] * b1_jj[j];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         if diagonal {
             // Diagonal Cholesky.
@@ -344,26 +376,34 @@ pub fn oefpil(
             }
         } else {
             // Cholesky in place, M11 now contains just the factor LM.
-            lpkinfo = dpotrf(Uplo::Lower, n, &mut m11, n);
+            lpkinfo = 0;
+            for (block, _, offset) in spans(blocks, 1) {
+                lpkinfo = dpotrf(Uplo::Lower, block, &mut m11[offset..], block);
+                if lpkinfo != 0 {
+                    break;
+                }
+            }
             if lpkinfo != 0 {
                 status = Status::ErrorLapack;
                 lpkerrsrc = "DPOTRF(M11)";
                 break;
             }
             // E, B2 now contains the solution.
-            dtrsm(
-                Side::Left,
-                Uplo::Lower,
-                Trans::No,
-                Diag::No,
-                n,
-                np,
-                1.0,
-                &m11,
-                n,
-                &mut b2,
-                n,
-            );
+            for (block, start, offset) in spans(blocks, 1) {
+                dtrsm(
+                    Side::Left,
+                    Uplo::Lower,
+                    Trans::No,
+                    Diag::No,
+                    block,
+                    np,
+                    1.0,
+                    &m11[offset..],
+                    block,
+                    &mut b2[start..],
+                    n,
+                );
+            }
         }
 
         // xdiff(nve * n)
@@ -390,7 +430,18 @@ pub fn oefpil(
                 u[i] /= lm[i];
             }
         } else {
-            dtrsv(Uplo::Lower, Trans::No, Diag::No, n, &m11, n, &mut u, 1);
+            for (block, start, offset) in spans(blocks, 1) {
+                dtrsv(
+                    Uplo::Lower,
+                    Trans::No,
+                    Diag::No,
+                    block,
+                    &m11[offset..],
+                    block,
+                    &mut u[start..],
+                    1,
+                );
+            }
         }
 
         // v(n) = u(n)
@@ -447,7 +498,18 @@ pub fn oefpil(
                 v[i] /= lm[i];
             }
         } else {
-            dtrsv(Uplo::Lower, Trans::Yes, Diag::No, n, &m11, n, &mut v, 1);
+            for (block, start, offset) in spans(blocks, 1) {
+                dtrsv(
+                    Uplo::Lower,
+                    Trans::Yes,
+                    Diag::No,
+                    block,
+                    &m11[offset..],
+                    block,
+                    &mut v[start..],
+                    1,
+                );
+            }
         }
 
         // deltap_hat(np) = w(np)
@@ -487,6 +549,9 @@ pub fn oefpil(
             }
             Mode::Diagonals => dgetmv_diags(n, nve, -1.0, k, tilemap, &z, 1.0, &mut deltax_hat),
             Mode::Full => dgetmv_full(n, nve, -1.0, k, tilemap, &z, 1.0, &mut deltax_hat),
+            Mode::Grouped => {
+                dgetmv_grouped(groups, n, nve, -1.0, k, tilemap, &z, 1.0, &mut deltax_hat);
+            }
         }
 
         for i in 0..n * nve {
@@ -504,6 +569,7 @@ pub fn oefpil(
             Mode::BlockDiagonal => dtrtsv_blockdiag(n, nve, &lk, &mut xdiff),
             Mode::Diagonals => dtrtsv_diags(n, nve, &lk, &mut xdiff),
             Mode::Full => dtrtsv_full(n, nve, &lk, &mut xdiff),
+            Mode::Grouped => dtrtsv_grouped(groups, n, nve, &lk, &mut xdiff, &mut lk_work),
         }
 
         chi2 = ddot(nve * n, &xdiff, 1, &xdiff, 1);

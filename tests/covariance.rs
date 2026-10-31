@@ -9,8 +9,8 @@
 )]
 
 use oefpil::{
-    Algorithm, AlgorithmError, Covariance, Criterion, Model, OefpilError, Parameter, Report,
-    Variable,
+    Algorithm, AlgorithmError, Covariance, CovarianceError, Criterion, Distribution, Model,
+    OefpilError, Parameter, Report, Variable,
 };
 
 const SAMPLES: usize = 12;
@@ -547,5 +547,215 @@ fn not_positive_variance_of_diagonal_is_numerical_error() -> Result<(), OefpilEr
             ));
         }
     }
+    Ok(())
+}
+
+/// Number of samples of each group adding up to [`SAMPLES`].
+const GROUPS: [usize; 4] = [3, 1, 5, 3];
+
+/// Fields of the blocks of [`GROUPS`] of a block tile at `r` and `c` being asymmetric among
+/// variables.
+fn grouped_tile(r: usize, c: usize) -> Vec<f64> {
+    let mut tile = Vec::new();
+    let mut start = 0;
+    for group in GROUPS {
+        for row in 0..group {
+            for column in 0..group {
+                let asymmetry = if r != c && row < column { 0.5 } else { 1.0 };
+                tile.push(
+                    asymmetry
+                        * among(r, c)
+                        * (1.0 + 0.1 * (start + row.min(column)) as f64)
+                        * 1e-3
+                        * 0.3f64.powi(row.abs_diff(column).try_into().unwrap()),
+                );
+            }
+        }
+        start += group;
+    }
+    tile
+}
+
+/// Fields of a block tile of all samples of [`grouped_tile()`].
+fn ungrouped_tile(r: usize, c: usize) -> Vec<f64> {
+    let grouped = grouped_tile(r, c);
+    let mut tile = vec![0f64; SAMPLES * SAMPLES];
+    let (mut start, mut offset) = (0, 0);
+    for group in GROUPS {
+        for row in 0..group {
+            for column in 0..group {
+                tile[(start + row) * SAMPLES + start + column] =
+                    grouped[offset + row * group + column];
+            }
+        }
+        start += group;
+        offset += group * group;
+    }
+    tile
+}
+
+#[test]
+fn grouped_is_optimal_and_agrees_with_full() -> Result<(), OefpilError> {
+    for (model, p, start) in [
+        (EXPLICIT, &[1.0, 2.0, -1.0][..], &[0.9, 2.1, -0.9][..]),
+        (IMPLICIT, &[0.8, -0.5, 0.3][..], &[0.9, -0.4, 0.2][..]),
+        (
+            QUADRIVARIATE,
+            &[1.0, 2.0, -1.0, 0.5][..],
+            &[0.9, 2.1, -0.9, 0.6][..],
+        ),
+    ] {
+        let variables = model.variables();
+        let v = sample(model, p);
+        let grouped = tiled(Covariance::new_grouped(&GROUPS, variables), grouped_tile)?;
+        let full = tiled(Covariance::new_full(SAMPLES, variables), ungrouped_tile)?;
+        assert_eq!(full.to_full(), grouped.to_full());
+        let fit_grouped = fit(model, &v, &grouped, start)?;
+        assert_optimal(model, &v, &grouped, &fit_grouped);
+        let fit_full = fit(model, &v, &full, start)?;
+        assert_close(&fit_grouped.p, &fit_full.p, 1.0, 1e-11);
+        assert_close(&fit_grouped.mean, &fit_full.mean, 1.0, 1e-11);
+        assert_close(
+            &fit_grouped.p_covariance,
+            &fit_full.p_covariance,
+            1e-3,
+            1e-9,
+        );
+        assert_close(
+            &[fit_grouped.report.chi_squared],
+            &[fit_full.report.chi_squared],
+            fit_full.report.chi_squared,
+            1e-9,
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn grouped_coincides_with_other_modes_at_its_limits() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let start = [0.9, 2.1, -0.9];
+    let v = sample(EXPLICIT, &p);
+    // One group of all samples is a full matrix.
+    let tile = |r, c| block_tile(r, c, 0.3);
+    let one = tiled(Covariance::new_grouped(&[SAMPLES], 3), tile)?;
+    let full = tiled(Covariance::new_full(SAMPLES, 3), tile)?;
+    assert_eq!(full.to_full(), one.to_full());
+    let reference = fit(EXPLICIT, &v, &full, &start)?;
+    let fitted = fit(EXPLICIT, &v, &one, &start)?;
+    assert_close(&fitted.p, &reference.p, 1.0, 1e-11);
+    assert_close(&fitted.mean, &reference.mean, 1.0, 1e-11);
+    // Groups of one sample each are diagonal tiles all over.
+    let singles = tiled(Covariance::new_grouped(&[1; SAMPLES], 3), diagonal_tile)?;
+    let diagonals = tiled(Covariance::new_diagonals(SAMPLES, 3), diagonal_tile)?;
+    assert_eq!(diagonals.to_full(), singles.to_full());
+    let reference = fit(EXPLICIT, &v, &diagonals, &start)?;
+    let fitted = fit(EXPLICIT, &v, &singles, &start)?;
+    assert_close(&fitted.p, &reference.p, 1.0, 1e-11);
+    assert_close(&fitted.mean, &reference.mean, 1.0, 1e-11);
+    Ok(())
+}
+
+#[test]
+fn grouped_tile_forms_agree() -> Result<(), OefpilError> {
+    let block = [4.0, 1.0, 1.0, 3.0, 2.0];
+    let half = [4.0, 1.0, 3.0, 2.0];
+    let diagonal = [4.0, 3.0, 2.0];
+    let first = Covariance::new_grouped(&[2, 1], 1).with_tile(0, 0, &block)?;
+    let second = Covariance::new_grouped(&[2, 1], 1).with_tile(0, 0, &half)?;
+    assert_eq!(first.to_full(), second.to_full());
+    assert_eq!(
+        [4.0, 1.0, 0.0, 1.0, 3.0, 0.0, 0.0, 0.0, 2.0],
+        first.to_full().as_slice()
+    );
+    // A diagonal tile clears what a previous block tile left behind.
+    let third = first.with_tile(0, 0, &diagonal)?;
+    assert_eq!(
+        [4.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 2.0],
+        third.to_full().as_slice()
+    );
+    Ok(())
+}
+
+#[test]
+fn grouped_rejects_wrong_tiles() {
+    let covariance = || Covariance::new_grouped(&[2, 1], 2);
+    assert!(matches!(
+        covariance().with_tile(0, 0, &[1.0; 2]),
+        Err(OefpilError::Covariance(CovarianceError::MismatchingTile))
+    ));
+    assert!(matches!(
+        covariance().with_tile(0, 0, &[1.0, 2.0, 3.0, 4.0, 5.0]),
+        Err(OefpilError::Covariance(CovarianceError::AsymmetricTile))
+    ));
+    assert!(matches!(
+        covariance().with_tile(0, 2, &[1.0; 3]),
+        Err(OefpilError::Covariance(
+            CovarianceError::OutOfBoundTileIndex
+        ))
+    ));
+    // Asymmetry among variables is valid.
+    assert!(
+        covariance()
+            .with_tile(0, 1, &[1.0, 2.0, 3.0, 4.0, 5.0])
+            .is_ok()
+    );
+}
+
+#[test]
+#[should_panic(expected = "assertion failed")]
+fn grouped_rejects_empty_group() {
+    let _ = Covariance::new_grouped(&[2, 0, 1], 2);
+}
+
+#[test]
+#[should_panic(expected = "assertion")]
+fn grouped_rejects_no_groups() {
+    let _ = Covariance::new_grouped(&[], 2);
+}
+
+#[test]
+fn grouped_not_positive_definite_is_numerical_error() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    // Only the last group fails.
+    let tile = |r: usize, c: usize| {
+        let mut tile = vec![if r == c { 1e-3 } else { 0.0 }; SAMPLES];
+        if r != c {
+            tile[SAMPLES - 1] = -0.9e-3;
+        }
+        tile
+    };
+    let covariance = tiled(Covariance::new_grouped(&GROUPS, 3), tile)?;
+    assert!(matches!(
+        fit(EXPLICIT, &v, &covariance, &p),
+        Err(OefpilError::Algorithm(AlgorithmError::NumericalError))
+    ));
+    assert!(covariance.with_decomposition().is_err());
+    Ok(())
+}
+
+#[test]
+fn grouped_samples_like_full() -> Result<(), OefpilError> {
+    let grouped = tiled(Covariance::new_grouped(&GROUPS, 3), grouped_tile)?.with_decomposition()?;
+    let full = tiled(Covariance::new_full(SAMPLES, 3), ungrouped_tile)?.with_decomposition()?;
+    let mean = (0..3 * SAMPLES)
+        .map(|field| field as f64)
+        .collect::<Vec<f64>>();
+    let draw = |covariance| -> Result<Vec<f64>, OefpilError> {
+        let mut sample = vec![0f64; 3 * SAMPLES];
+        let mut field = 0;
+        Distribution {
+            sample: &mut sample,
+            mean: &mean,
+            covariance,
+        }
+        .sample(|| {
+            field += 1;
+            (f64::from(field) * 1.7).sin()
+        })?;
+        Ok(sample)
+    };
+    assert_close(&draw(&grouped)?, &draw(&full)?, 1.0, 1e-13);
     Ok(())
 }

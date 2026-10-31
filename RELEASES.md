@@ -3,6 +3,8 @@
   * Rewrite in pure Rust without system dependencies. `oefpil-sys` is merely used to compare both
     implementations in the test suite. The results agree up to rounding errors.
   * Add optional feature `faer` to speed up large block-diagonal and full covariance matrices.
+  * Add `Covariance::new_grouped()` for samples being correlated within groups only, which makes
+    fitting orders of magnitude faster than a full matrix if the groups are small.
   * Add examples `altimeter.rs`, `compass.rs`, `supernovae.rs`, and `rar.rs`.
   * Support `no_std` environments with an allocator by disabling the new default feature `std`,
     which gates `Logfile` and `read_matrix()`.

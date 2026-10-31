@@ -4,7 +4,9 @@
 //!
 //! A diagonal tile stores `n` fields whereas a block tile stores `n * n` fields. Modes
 //! [`Mode::BlockDiagonal`] and [`Mode::Full`] allocate block tiles even for diagonal tiles and
-//! [`Mode::Full`] is stored as dense column-major matrix of order `bn * n`.
+//! [`Mode::Full`] is stored as dense column-major matrix of order `bn * n`. [`Mode::Grouped`]
+//! stores each group like [`Mode::Full`] one after another, so all of its tiles have the same
+//! groups.
 
 #![allow(
     clippy::many_single_char_names,
@@ -15,7 +17,7 @@
     clippy::too_many_arguments
 )]
 
-use crate::la::{Diag, Trans, Uplo, dgemv, dpotrf, dtrsv};
+use crate::la::{Diag, Trans, Uplo, dgemv, dpotrf, dtrmv, dtrsv};
 
 /// Tiling mode of covariance matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +30,8 @@ pub enum Mode {
     Diagonals = 3,
     /// Diagonal or block tiles all over.
     Full = 4,
+    /// Diagonal or block tiles all over with block tiles being zero between groups of samples.
+    Grouped = 5,
 }
 
 /// Mode of tile.
@@ -39,6 +43,17 @@ pub enum Tile {
     Diagonal,
     /// Block.
     Block,
+}
+
+/// Yields for each of the `groups` its number of samples, its first sample, and its first field
+/// when stored as dense matrix of order `bn` times its number of samples.
+pub fn spans(groups: &[usize], bn: usize) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
+    groups.iter().scan((0, 0), move |(start, offset), &n| {
+        let span = (n, *start, *offset);
+        *start += n;
+        *offset += (bn * n) * (bn * n);
+        Some(span)
+    })
 }
 
 pub fn tcm_diag_set_tile_diag(n: usize, a: &mut [f64], tilemap: &mut [Tile], ii: usize, b: &[f64]) {
@@ -284,6 +299,40 @@ pub fn dgetmv_full(
     }
 }
 
+pub fn dgetmv_grouped(
+    groups: &[usize],
+    n: usize,
+    bn: usize,
+    alpha: f64,
+    a: &[f64],
+    tma: &[Tile],
+    x: &[f64],
+    beta: f64,
+    y: &mut [f64],
+) {
+    for y in &mut y[..bn * n] {
+        *y *= beta;
+    }
+    for (m, start, offset) in spans(groups, bn) {
+        for ii in 0..bn {
+            let y = &mut y[ii * n + start..];
+            for jj in 0..bn {
+                let a = &a[offset + jj * bn * m * m + ii * m..];
+                let x = &x[jj * n + start..];
+                match tma[jj * bn + ii] {
+                    Tile::Diagonal => {
+                        for i in 0..m {
+                            y[i] += alpha * a[i * m * bn + i] * x[i];
+                        }
+                    }
+                    Tile::Block => dgemv(Trans::No, m, m, alpha, a, bn * m, x, 1, 1.0, y, 1),
+                    Tile::None => {}
+                }
+            }
+        }
+    }
+}
+
 /// Returns the one-based index of the first pivot which is not positive or `0` on success.
 pub fn dpottrf_diag(n: usize, bn: usize, a: &mut [f64]) -> usize {
     for i in 0..bn * n {
@@ -338,6 +387,18 @@ pub fn dpottrf_full(n: usize, bn: usize, a: &mut [f64]) -> usize {
     dpotrf(Uplo::Lower, bn * n, a, bn * n)
 }
 
+/// Returns the one-based index of the first pivot within its group which is not positive or `0` on
+/// success.
+pub fn dpottrf_grouped(groups: &[usize], bn: usize, a: &mut [f64]) -> usize {
+    for (m, _start, offset) in spans(groups, bn) {
+        let info = dpotrf(Uplo::Lower, bn * m, &mut a[offset..], bn * m);
+        if info != 0 {
+            return info;
+        }
+    }
+    0
+}
+
 pub fn dtrtsv_diag(n: usize, bn: usize, a: &[f64], b: &mut [f64]) {
     for i in 0..bn * n {
         b[i] /= a[i];
@@ -374,4 +435,53 @@ pub fn dtrtsv_diags(n: usize, bn: usize, a: &[f64], b: &mut [f64]) {
 
 pub fn dtrtsv_full(n: usize, bn: usize, a: &[f64], b: &mut [f64]) {
     dtrsv(Uplo::Lower, Trans::No, Diag::No, bn * n, a, bn * n, b, 1);
+}
+
+/// Calls `f` with the factor of each of the `groups` and its fields of `b` gathered in `work`.
+fn for_each_group(
+    groups: &[usize],
+    n: usize,
+    bn: usize,
+    a: &[f64],
+    b: &mut [f64],
+    work: &mut [f64],
+    f: impl Fn(usize, &[f64], &mut [f64]),
+) {
+    for (m, start, offset) in spans(groups, bn) {
+        for ii in 0..bn {
+            work[ii * m..][..m].copy_from_slice(&b[ii * n + start..][..m]);
+        }
+        f(bn * m, &a[offset..], work);
+        for ii in 0..bn {
+            b[ii * n + start..][..m].copy_from_slice(&work[ii * m..][..m]);
+        }
+    }
+}
+
+/// Requires `work` of `bn` times the number of samples of the largest of the `groups`.
+pub fn dtrtsv_grouped(
+    groups: &[usize],
+    n: usize,
+    bn: usize,
+    a: &[f64],
+    b: &mut [f64],
+    work: &mut [f64],
+) {
+    for_each_group(groups, n, bn, a, b, work, |order, a, work| {
+        dtrsv(Uplo::Lower, Trans::No, Diag::No, order, a, order, work, 1);
+    });
+}
+
+/// Requires `work` of `bn` times the number of samples of the largest of the `groups`.
+pub fn dtrtmv_grouped(
+    groups: &[usize],
+    n: usize,
+    bn: usize,
+    a: &[f64],
+    b: &mut [f64],
+    work: &mut [f64],
+) {
+    for_each_group(groups, n, bn, a, b, work, |order, a, work| {
+        dtrmv(Uplo::Lower, Trans::No, Diag::No, order, a, order, work, 1);
+    });
 }

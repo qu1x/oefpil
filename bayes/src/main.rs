@@ -224,19 +224,23 @@ fn covariance(points: &[Point], correlated: bool, scatter: f64) -> Covariance {
             .with_tile(1, 1, &y_tile)
             .unwrap();
     }
-    let samples = points.len();
-    let (mut x_tile, mut y_tile) = (vec![0.0; samples * samples], vec![0.0; samples * samples]);
-    for (row, a) in points.iter().enumerate() {
-        for (column, b) in points.iter().enumerate() {
-            if a.galaxy == b.galaxy {
-                x_tile[row * samples + column] = a.stars * b.stars * STARS_ERROR * STARS_ERROR;
-                y_tile[row * samples + column] = a.y_shared * b.y_shared;
+    let galaxies = || points.chunk_by(|a, b| a.galaxy == b.galaxy);
+    let groups: Vec<usize> = galaxies().map(<[Point]>::len).collect();
+    let (mut x_tile, mut y_tile) = (Vec::new(), Vec::new());
+    for galaxy in galaxies() {
+        for (row, a) in galaxy.iter().enumerate() {
+            for (column, b) in galaxy.iter().enumerate() {
+                let (x_diagonal, y_diagonal) = if row == column {
+                    (x_own, y_own(a))
+                } else {
+                    (0.0, 0.0)
+                };
+                x_tile.push(a.stars * b.stars * STARS_ERROR * STARS_ERROR + x_diagonal);
+                y_tile.push(a.y_shared * b.y_shared + y_diagonal);
             }
         }
-        x_tile[row * samples + row] += x_own;
-        y_tile[row * samples + row] += y_own(a);
     }
-    Covariance::new_block_diagonal(samples, 2)
+    Covariance::new_grouped(&groups, 2)
         .with_tile(0, 0, &x_tile)
         .unwrap()
         .with_tile(1, 1, &y_tile)

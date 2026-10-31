@@ -167,7 +167,8 @@
 //!   * `std` (enabled by default) -- [`Logfile`] and [`read_matrix()`].
 //!   * `faer` (disabled by default) -- Linear algebra on [`faer`] instead of plain Rust, which
 //!     makes fitting about three times faster if the covariance matrix is block-diagonal or full
-//!     with hundreds of samples or more, but takes much longer to compile. It does not surface in
+//!     with hundreds of samples or more, or grouped with such large groups, but takes much longer
+//!     to compile. It does not surface in
 //!     the API and yields the same results up to rounding errors. Without `std`, most of its speed
 //!     is lost as it can neither detect CPU features at runtime nor reuse thread-local workspace.
 #![cfg_attr(
@@ -202,11 +203,11 @@
 //!     the published matter density of the universe from 1590 Type Ia supernovae of the Pantheon+
 //!     data release, which the first run downloads. Ignoring their correlation shifts the estimate
 //!     and claims too much precision.
-//!   * [`rar.rs`] -- Explicit nonlinear model of real data with errors in both variables correlated
-//!     within each galaxy -- Reanalyzes the radial acceleration relation of the SPARC database,
-//!     which the first run downloads. Ignoring this correlation claims about four times the actual
-//!     precision, confirmed via Monte Carlo simulation, whereas modeling it agrees with a Bayesian
-//!     sampler of the same model.
+//!   * [`rar.rs`] -- Explicit nonlinear model of real data with a grouped covariance matrix --
+//!     Reanalyzes the radial acceleration relation of the SPARC database, which the first run
+//!     downloads. Ignoring the errors shared by the samples of a galaxy claims about four times the
+//!     actual precision, confirmed via Monte Carlo simulation, whereas modeling them agrees with a
+//!     Bayesian sampler of the same model.
 //!
 //! # Troubleshooting
 //!
@@ -260,9 +261,10 @@ use std::{
     path::Path,
 };
 use tiled::{
-    Mode, Tile, tcm_blockdiag_set_tile_diag, tcm_blockdiag_set_tile_full,
-    tcm_blockdiag_set_tile_half, tcm_diag_set_tile_diag, tcm_diags_set_tile_diag,
-    tcm_full_set_tile_diag, tcm_full_set_tile_full, tcm_full_set_tile_half,
+    Mode, Tile, dpottrf_grouped, dtrtmv_grouped, spans, tcm_blockdiag_set_tile_diag,
+    tcm_blockdiag_set_tile_full, tcm_blockdiag_set_tile_half, tcm_diag_set_tile_diag,
+    tcm_diags_set_tile_diag, tcm_full_set_tile_diag, tcm_full_set_tile_full,
+    tcm_full_set_tile_half,
 };
 
 /// Convergence criterion.
@@ -416,6 +418,7 @@ impl Algorithm {
             &covariance.fields,
             covariance.mode,
             &covariance.tiles,
+            &covariance.groups,
             self.iteration_limit,
             self.tolerance,
             self.criterion,
@@ -643,16 +646,29 @@ impl Distribution<'_> {
         // Uncorrelated observational unit errors (mean of `0` and deviation of `1`).
         self.sample.iter_mut().for_each(|sample| *sample = normal());
         // Correlated observational errors.
-        la::dtrmv(
-            la::Uplo::Lower,
-            la::Trans::No,
-            la::Diag::No,
-            length,
-            &self.covariance.decomposition,
-            length,
-            self.sample,
-            1,
-        );
+        let covariance = self.covariance;
+        if covariance.mode == Mode::Grouped {
+            let largest = covariance.groups.iter().copied().max().unwrap_or(0);
+            dtrtmv_grouped(
+                &covariance.groups,
+                covariance.samples,
+                covariance.variables,
+                &covariance.decomposition,
+                self.sample,
+                &mut vec![0f64; covariance.variables * largest],
+            );
+        } else {
+            la::dtrmv(
+                la::Uplo::Lower,
+                la::Trans::No,
+                la::Diag::No,
+                length,
+                &covariance.decomposition,
+                length,
+                self.sample,
+                1,
+            );
+        }
         // Observational sample.
         self.sample
             .iter_mut()
@@ -734,6 +750,9 @@ impl Variable<'_> {
     }
 }
 
+/// Sets a tile of a full matrix.
+type SetTile = fn(usize, usize, &mut [f64], &mut [Tile], usize, usize, &[f64]);
+
 /// $`|V||v|\times|V||v|`$ covariance matrix $`\gdef\c#1#2{\textup{Cov}(#1,#2)}\c{V}{V}`$ with
 /// $`|v|\times|v|`$ tiles $`\c{V^R}{V^C}`$ at row $`R`$ column $`C`$ where $`R,C\in[1,|V|]`$.
 ///
@@ -752,6 +771,7 @@ impl Variable<'_> {
 ///   * [`Self::new_block_diagonal()`]
 ///   * [`Self::new_diagonals()`]
 ///   * [`Self::new_full()`]
+///   * [`Self::new_grouped()`]
 ///
 /// All constructors require the number of samples $`|v|`$ and the number of variables $`|V|`$. The
 /// fields of the matrix are set per tile via [`Self::set_tile()`] or [`Self::with_tile()`] which
@@ -763,6 +783,7 @@ pub struct Covariance {
     tiles: Vec<Tile>,
     fields: Vec<f64>,
     decomposition: Vec<f64>,
+    groups: Vec<usize>,
     samples: usize,
     variables: usize,
     unknown_scale: bool,
@@ -817,6 +838,7 @@ impl Covariance {
             tiles,
             fields,
             decomposition: Vec::new(),
+            groups: Vec::new(),
             samples,
             variables,
             unknown_scale: false,
@@ -879,6 +901,7 @@ impl Covariance {
             tiles,
             fields,
             decomposition: Vec::new(),
+            groups: Vec::new(),
             samples,
             variables,
             unknown_scale: false,
@@ -932,6 +955,7 @@ impl Covariance {
             tiles,
             fields,
             decomposition: Vec::new(),
+            groups: Vec::new(),
             samples,
             variables,
             unknown_scale: false,
@@ -996,7 +1020,80 @@ impl Covariance {
             tiles,
             fields,
             decomposition: Vec::new(),
+            groups: Vec::new(),
             samples,
+            variables,
+            unknown_scale: false,
+        }
+    }
+    /// Constructs a matrix of samples being correlated within `groups` only (i.e., a full matrix for
+    /// each group).
+    ///
+    /// Each entry of `groups` is the number of adjacent samples of a group, which add up to the
+    /// number of samples $`|v|`$. Tiles are set like the ones of [`Self::new_full()`] but a block
+    /// tile only comprises the blocks of all groups one after another:
+    ///
+    /// ```math
+    /// \gdef\grouped{\boxed{\begin{smallmatrix}
+    ///     \rule{0pt}{0.67em}\square \\ & \ddots \\ && \square
+    /// \end{smallmatrix}}}
+    /// \c{V}{V} = \begin{pmatrix}
+    /// & \grouped & \dots  & \grouped & \\
+    /// & \vdots   & \ddots & \vdots   & \\
+    /// & \grouped & \dots  & \grouped & \end{pmatrix}
+    /// ```
+    ///
+    /// Allocates $`\sum_g(|V||g|)^2`$ fields. This suits errors shared by a group of samples (e.g.,
+    /// of a measurement series, a batch, or an observed object) as a fit only takes cubic time in
+    /// the size of the largest groups instead of in the number of samples.
+    ///
+    /// # Panics
+    ///
+    ///   * Asserts `groups`, each of its entries, and `variables` to be non-zero.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use oefpil::Covariance;
+    ///
+    /// # fn main() -> Result<(), oefpil::OefpilError> {
+    /// let covariance = Covariance::new_grouped(&[2, 1], 2)
+    ///     .with_tile(0, 0, &[4.0, 7.0,
+    ///                        7.0, 5.0,
+    ///                                  6.0])?
+    ///     .with_tile(0, 1, &[1.0, 2.0,
+    ///                        3.0, 0.5,
+    ///                                  0.25])?
+    ///     .with_tile(1, 1, &[1.0, 2.0, 3.0])?;
+    /// let full = [
+    ///     4.0, 7.0, 0.0, 1.0, 2.0, 0.00,
+    ///     7.0, 5.0, 0.0, 3.0, 0.5, 0.00,
+    ///     0.0, 0.0, 6.0, 0.0, 0.0, 0.25,
+    ///     1.0, 3.0, 0.0, 1.0, 0.0, 0.00,
+    ///     2.0, 0.5, 0.0, 0.0, 2.0, 0.00,
+    ///     0.0, 0.0, 0.25, 0.0, 0.0, 3.0,
+    /// ];
+    /// assert_eq!(full, covariance.to_full().as_slice());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn new_grouped(groups: &[usize], variables: usize) -> Self {
+        assert_ne!(groups, []);
+        assert!(groups.iter().all(|&group| group > 0));
+        assert!(variables > 0);
+        let tiles = vec![Tile::None; variables.pow(2)];
+        let fields = groups
+            .iter()
+            .map(|group| (group * variables).pow(2))
+            .sum::<usize>();
+        Self {
+            mode: Mode::Grouped,
+            tiles,
+            fields: vec![0.0; fields],
+            decomposition: Vec::new(),
+            groups: groups.to_vec(),
+            samples: groups.iter().sum(),
             variables,
             unknown_scale: false,
         }
@@ -1012,6 +1109,9 @@ impl Covariance {
     /// to be symmetric unless only the lower triangle inclusive the diagonal is provided as
     /// row-major [triangular slice] of length `samples * (samples + 1) / 2` where the upper
     /// triangle is automatically constructed.
+    ///
+    /// For [`Self::new_grouped()`], a block tile has the fields of the block of each group one
+    /// after another, each in one of the forms above but of the size of that group.
     ///
     /// Clears decomposition computed via [`Self::with_decomposition()`].
     ///
@@ -1098,6 +1198,46 @@ impl Covariance {
                     fields,
                 );
             }
+            Mode::Grouped => self.set_grouped_tile(row, column, fields)?,
+        }
+        Ok(())
+    }
+    /// Sets `fields` of tile at `row` and `column` of [`Self::new_grouped()`].
+    fn set_grouped_tile(
+        &mut self,
+        row: usize,
+        column: usize,
+        fields: &[f64],
+    ) -> Result<(), OefpilError> {
+        let triangle = |group: usize| group * (group + 1) / 2;
+        let block = |group: usize| group * group;
+        let (tcm_full_set_tile, length): (SetTile, &dyn Fn(usize) -> usize) =
+            if fields.len() == self.samples {
+                (tcm_full_set_tile_diag, &|group| group)
+            } else if fields.len() == self.groups.iter().copied().map(triangle).sum() {
+                (tcm_full_set_tile_half, &triangle)
+            } else if fields.len() == self.groups.iter().copied().map(block).sum() {
+                if row == column && !self.are_groups_symmetric(fields) {
+                    return Err(CovarianceError::AsymmetricTile.into());
+                }
+                (tcm_full_set_tile_full, &block)
+            } else {
+                return Err(CovarianceError::MismatchingTile.into());
+            };
+        let mut fields = fields;
+        for (group, _start, offset) in spans(&self.groups, self.variables) {
+            let (tile, rest) = fields.split_at(length(group));
+            // Swapped as these expect column-major `fields` whereas these are row-major.
+            tcm_full_set_tile(
+                group,
+                self.variables,
+                &mut self.fields[offset..],
+                &mut self.tiles,
+                column,
+                row,
+                tile,
+            );
+            fields = rest;
         }
         Ok(())
     }
@@ -1146,9 +1286,15 @@ impl Covariance {
     ///
     /// Returns [`OefpilError`] on failure.
     pub fn with_decomposition(mut self) -> Result<Self, OefpilError> {
-        self.decomposition = self.to_full();
         let order = self.order();
-        match la::dpotrf(la::Uplo::Lower, order, &mut self.decomposition, order) {
+        let info = if self.mode == Mode::Grouped {
+            self.decomposition.clone_from(&self.fields);
+            dpottrf_grouped(&self.groups, self.variables, &mut self.decomposition)
+        } else {
+            self.decomposition = self.to_full();
+            la::dpotrf(la::Uplo::Lower, order, &mut self.decomposition, order)
+        };
+        match info {
             0 => Ok(self),
             _ => Err(AlgorithmError::NumericalError.into()),
         }
@@ -1194,6 +1340,19 @@ impl Covariance {
                 }
             }
             Mode::Full => fields.clone_from(&self.fields),
+            Mode::Grouped => {
+                let variables = self.variables;
+                for (group, start, offset) in spans(&self.groups, variables) {
+                    for row in 0..variables * group {
+                        for column in 0..variables * group {
+                            let source = offset + column * variables * group + row;
+                            let at =
+                                |index: usize| index / group * self.samples + start + index % group;
+                            fields[at(column) * order + at(row)] = self.fields[source];
+                        }
+                    }
+                }
+            }
         }
         fields
     }
@@ -1214,6 +1373,21 @@ impl Covariance {
     #[inline]
     pub const fn order(&self) -> usize {
         self.samples * self.variables
+    }
+    #[must_use]
+    fn are_groups_symmetric(&self, fields: &[f64]) -> bool {
+        let mut fields = fields;
+        self.groups.iter().all(|&group| {
+            let (block, rest) = fields.split_at(group * group);
+            fields = rest;
+            (0..group).all(|row| {
+                (0..row).all(|column| {
+                    #[allow(clippy::float_cmp)]
+                    let symmetric = block[row * group + column] == block[column * group + row];
+                    symmetric
+                })
+            })
+        })
     }
     #[must_use]
     fn is_symmetric(&self, fields: &[f64]) -> bool {
