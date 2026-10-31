@@ -26,6 +26,7 @@ categories = [
 include = [
 	"src/**/*.rs",
 	"examples/**/*.rs",
+	"tests/**/*.rs",
 	"katex.html",
 	"Cargo.toml",
 	"README.md",
@@ -46,7 +47,7 @@ faer = { version = "0.24.4", default-features = false, optional = true }
 libm = "0.2.16"
 
 [dev-dependencies]
-oefpil-sys = { path = "oefpil-sys" }
+oefpil-sys = { path = "oefpil-sys", version = "0.5.0" }
 rand = "0.10.3"
 rand_chacha = "0.10.0"
 rand_distr = "0.6.0"
