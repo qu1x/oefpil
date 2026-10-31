@@ -22,7 +22,6 @@ use crate::{
     },
 };
 use alloc::{vec, vec::Vec};
-use faer::dyn_stack::MemStack;
 
 /// Why the iterations ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,7 +408,7 @@ pub fn oefpil(
             &t,
             &mut u,
             n,
-            MemStack::new(&mut work),
+            &mut work,
         );
 
         // QE is square = (Q_R Q_0)
@@ -434,7 +433,7 @@ pub fn oefpil(
             &t,
             &mut u,
             n,
-            MemStack::new(&mut work),
+            &mut work,
         );
 
         // v(n) -> v(n) - u(n)

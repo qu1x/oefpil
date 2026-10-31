@@ -42,7 +42,7 @@ members = ["oefpil-sys"]
 
 [dependencies]
 derive_more = { version = "2.0.1", default-features = false, features = ["display", "error", "from"] }
-faer = { version = "0.24.4", default-features = false }
+faer = { version = "0.24.4", default-features = false, optional = true }
 libm = "0.2.15"
 
 [dev-dependencies]
@@ -71,7 +71,8 @@ opt-level = 3
 
 [features]
 default = ["std"]
-std = ["faer/std"]
+std = ["faer?/std"]
+faer = ["dep:faer"]
 
 [[test]]
 name = "regression"

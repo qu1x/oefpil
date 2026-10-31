@@ -164,9 +164,12 @@
 //!
 //! Following feature gates are available:
 //!
-//!   * `std` (enabled by default) -- [`Logfile`] and [`read_matrix()`]. Without it, the linear
-//!     algebra is slower as it neither detects CPU features at runtime nor reuses thread-local
-//!     workspace.
+//!   * `std` (enabled by default) -- [`Logfile`] and [`read_matrix()`].
+//!   * `faer` (disabled by default) -- Linear algebra on [`faer`] instead of plain Rust, which
+//!     makes fitting about three times faster if the covariance matrix is block-diagonal or full
+//!     with hundreds of samples or more, but takes much longer to compile. It does not surface in
+//!     the API and yields the same results up to rounding errors. Without `std`, most of its speed
+//!     is lost as it can neither detect CPU features at runtime nor reuse thread-local workspace.
 #![cfg_attr(
     not(feature = "std"),
     doc = r"
@@ -177,6 +180,7 @@
 )]
 //!
 //! [`no_std`]: https://crates.io/categories/no-std
+//! [`faer`]: https://docs.rs/faer
 //!
 //! # Examples
 //!

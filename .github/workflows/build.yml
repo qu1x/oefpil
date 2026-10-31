@@ -26,12 +26,15 @@ jobs:
         sudo apt update
         sudo apt install liblapack-dev gcc
     - name: test
-      run: cargo test
+      run: |
+        cargo test
+        cargo test --features faer
     - name: run
       run: cargo run --example sine
     - name: clippy
       run: |
         cargo clippy --tests --examples
+        cargo clippy --tests --examples --features faer
     - name: doc
       run: cargo doc
     - name: fmt
@@ -51,15 +54,20 @@ jobs:
         sudo apt update
         sudo apt install liblapack-dev gcc
     - name: check
-      run: |
-        cargo check --no-default-features --target x86_64-unknown-none
+      run: cargo check --no-default-features --features faer --target x86_64-unknown-none
     - name: build
       run: |
+        cargo build --no-default-features --target x86_64-unknown-none
         cargo build --no-default-features --target aarch64-unknown-none
+        cargo build --no-default-features --features faer --target aarch64-unknown-none
     - name: test
-      run: cargo test --no-default-features
+      run: |
+        cargo test --no-default-features
+        cargo test --no-default-features --features faer
     - name: clippy
-      run: cargo clippy --no-default-features
+      run: |
+        cargo clippy --no-default-features
+        cargo clippy --no-default-features --features faer
     - name: doc
       run: cargo doc --no-default-features
   aarch64:
@@ -74,7 +82,9 @@ jobs:
         sudo apt update
         sudo apt install liblapack-dev gcc
     - name: test
-      run: cargo test
+      run: |
+        cargo test
+        cargo test --features faer
     - name: run
       run: cargo run --example sine
   all-features:
