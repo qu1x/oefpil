@@ -5,6 +5,9 @@
   * Add optional feature `faer` to speed up large block-diagonal and full covariance matrices.
   * Add `Covariance::new_grouped()` for samples being correlated within groups only, which makes
     fitting orders of magnitude faster than a full matrix if the groups are small.
+  * Approximate empty `Model::dfdx` and `Model::dfdp` via central differences, so a model can be
+    fitted without deriving it. Remove `Model::validate()`, `ModelError`, and `OefpilError::Model`
+    as these were about empty derivatives. Add `ParameterError::EmptyMean`.
   * Add examples `altimeter.rs`, `compass.rs`, `supernovae.rs`, and `rar.rs`.
   * Support `no_std` environments with an allocator by disabling the new default feature `std`,
     which gates `Logfile` and `read_matrix()`.

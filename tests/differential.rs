@@ -631,6 +631,70 @@ fn every_tiling_mode_agrees() {
 }
 
 #[test]
+fn numerical_derivatives_agree_with_analytic_ones() {
+    let mut converged = 0;
+    for (name, problem) in suite() {
+        let analytic = problem.fit_rust(&mut String::new());
+        let covariance = problem.covariance();
+        for (dfdx, dfdp) in [(true, true), (true, false), (false, true)] {
+            let model = Model {
+                dfdx: if dfdx { &[] } else { problem.model.dfdx },
+                dfdp: if dfdp { &[] } else { problem.model.dfdp },
+                ..problem.model
+            };
+            let mut mean = problem.sample.clone();
+            let mut parameter = problem.parameter.clone();
+            let mut parameter_covariance = vec![0f64; parameter.len().pow(2)];
+            let result = problem.algorithm.fit(
+                model,
+                &mut Variable {
+                    sample: &problem.sample,
+                    mean: &mut mean,
+                    covariance: &covariance,
+                },
+                &mut Parameter {
+                    mean: &mut parameter,
+                    covariance: &mut parameter_covariance,
+                    ..Parameter::default()
+                },
+            );
+            if analytic.status.is_err() {
+                continue;
+            }
+            let report = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+            converged += 1;
+            assert!(
+                report.iterations <= analytic.iterations + 1,
+                "{name}: {} iterations instead of {}",
+                report.iterations,
+                analytic.iterations,
+            );
+            for (numerical, analytic) in parameter.iter().zip(&analytic.parameter) {
+                assert!(
+                    (numerical - analytic).abs() < 1e-10,
+                    "{name}: {numerical} != {analytic}"
+                );
+            }
+            assert_all_close(&mean, &analytic.mean, 1e-10, name, "mean");
+            let scale = analytic
+                .parameter_covariance
+                .iter()
+                .fold(0f64, |scale, field| scale.max(field.abs()));
+            for (numerical, analytic) in parameter_covariance
+                .iter()
+                .zip(&analytic.parameter_covariance)
+            {
+                assert!(
+                    (numerical - analytic).abs() <= 1e-8 * scale,
+                    "{name}: {numerical} != {analytic}"
+                );
+            }
+        }
+    }
+    assert!(converged > 300, "{converged}");
+}
+
+#[test]
 fn most_problems_converge() {
     // Guards against agreement in merely failing together.
     let suite = suite();

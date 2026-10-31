@@ -152,7 +152,7 @@
 //!
 //!   * [`Algorithm`] for configuring the fitting algorithm (e.g., convergence [`Criterion`]).
 //!   * [`Model`] for defining the model comprising the function $`Y=f(X;P)`$ or $`0=f(X;P)`$ and
-//!     its derivative vectors in variables $`df/dX`$ and in parameters $`df/dP`$.
+//!     optionally its derivative vectors in variables $`df/dX`$ and in parameters $`df/dP`$.
 //!   * [`Variable`] for assigning the multivariate sample matrix $`v`$, the sample mean matrix
 //!     $`\mu`$, and the [`Covariance`] matrix $`\c{V}{V}`$. The initial estimates $`\mu`$ will be
 //!     overwritten by the optimum estimates $`\hat\mu`$.
@@ -397,7 +397,6 @@ impl Algorithm {
         parameter: &mut Parameter,
         log: &mut dyn fmt::Write,
     ) -> Result<Report, OefpilError> {
-        model.validate()?;
         variable.validate(model)?;
         parameter.validate(model)?;
         let samples = variable.covariance.samples;
@@ -533,16 +532,59 @@ mod logfile {
     }
 }
 
-/// Model comprising the function $`Y=f(X;P)`$ or $`0=f(X;P)`$ and its derivative vectors in
-/// variables $`df/dX`$ and parameters $`df/dP`$.
+/// Model comprising the function $`Y=f(X;P)`$ or $`0=f(X;P)`$ and optionally its derivative vectors
+/// in variables $`df/dX`$ and parameters $`df/dP`$.
+///
+/// An empty derivative slice is approximated via central differences of [`Self::fx`], so a model
+/// can be fitted without deriving it:
+///
+/// ```
+/// use oefpil::{Algorithm, Covariance, Model, Parameter, Variable};
+///
+/// # fn main() -> Result<(), oefpil::OefpilError> {
+/// let model = Model {
+///     fx: &|x, p| p[0] * (p[1] * x[0]).exp(),
+///     dfdx: &[],
+///     dfdp: &[],
+///     implicit: false,
+/// };
+/// let covariance = Covariance::new_diagonal(4, 2)
+///     .with_tile(0, 0, &[1e-4; 4])?
+///     .with_tile(1, 1, &[1e-2; 4])?;
+/// let mut variable = Variable {
+///     sample: &[0.0, 1.0, 2.0, 3.0, 2.0, 3.3, 5.4, 9.0],
+///     mean: &mut [],
+///     covariance: &covariance,
+/// };
+/// let (mut mean, mut covariance) = ([1.0, 1.0], [0.0; 4]);
+/// let mut parameter = Parameter {
+///     mean: &mut mean,
+///     covariance: &mut covariance,
+///     ..Parameter::default()
+/// };
+/// Algorithm::default().fit(model, &mut variable, &mut parameter)?;
+/// assert!((mean[0] - 2.0).abs() < 0.1 && (mean[1] - 0.5).abs() < 0.1);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Prefer analytic derivatives if they are at hand as each approximated derivative takes four more
+/// evaluations of [`Self::fx`] per sample and iteration and is less accurate, although this usually
+/// neither changes the number of iterations nor the digits of interest. A step is relative to
+/// the value it is taken of, down to a thousandth of the largest sample of its variable or of the
+/// initial estimate of its parameter. Therefore, data of any magnitude works without tuning,
+/// whereas a parameter with an initial estimate of zero is assumed to be of magnitude one. If
+/// [`Self::fx`] is not finite within two steps (e.g., the logarithm of a sample being about zero),
+/// the fit fails with [`AlgorithmError::NumericalError`] as it does for non-finite analytic
+/// derivatives.
 #[derive(Clone, Copy)]
 #[allow(clippy::similar_names)]
 pub struct Model<'a> {
     /// Explicit or implicit function $`Y=f(X;P)`$ or $`0=f(X;P)`$.
     pub fx: Expression<'a>,
-    /// Derivative vector $`df/dX`$ in independent variables $`X`$.
+    /// Derivative vector $`df/dX`$ in independent variables $`X`$ or empty to approximate it.
     pub dfdx: &'a [Expression<'a>],
-    /// Derivative vector $`df/dP`$ in parameters $`P`$.
+    /// Derivative vector $`df/dP`$ in parameters $`P`$ or empty to approximate it.
     pub dfdp: &'a [Expression<'a>],
     /// Whether the model is explicit or `implicit`.
     pub implicit: bool,
@@ -560,26 +602,13 @@ impl fmt::Debug for Model<'_> {
 
 impl Model<'_> {
     /// Number of independent as well as dependent variables $`|V|\equiv|X|+|Y|`$.
+    ///
+    /// With an empty [`Self::dfdx`], the independent variables are unknown to the model and hence
+    /// not counted. A fit takes them from its [`Covariance`] matrix.
     #[must_use]
     #[inline]
     pub fn variables(&self) -> usize {
         self.dfdx.len() + usize::from(!self.implicit)
-    }
-    /// Ensures non-empty derivative slices.
-    ///
-    /// Called in [`Algorithm::fit()`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ModelError`] on failure.
-    pub fn validate(&self) -> Result<(), ModelError> {
-        if self.dfdx.is_empty() {
-            return Err(ModelError::EmptyVariableDerivative);
-        }
-        if self.dfdp.is_empty() {
-            return Err(ModelError::EmptyParameterDerivative);
-        }
-        Ok(())
     }
 }
 
@@ -743,7 +772,14 @@ impl Variable<'_> {
     ///
     /// Returns [`VariableError`] on failure.
     pub fn validate(&self, model: Model) -> Result<(), VariableError> {
-        if self.covariance.variables != model.variables() {
+        let variables = self.covariance.variables;
+        // At least one independent variable is required.
+        let mismatching = if model.dfdx.is_empty() {
+            variables <= model.variables()
+        } else {
+            variables != model.variables()
+        };
+        if mismatching {
             return Err(VariableError::MismatchingCovariance);
         }
         let fields = self.covariance.samples * self.covariance.variables;
@@ -1481,8 +1517,11 @@ impl Parameter<'_> {
     ///
     /// Returns [`ParameterError`] on failure.
     pub fn validate(&self, model: Model) -> Result<(), ParameterError> {
-        if self.mean.len() != model.dfdp.len() {
+        if !model.dfdp.is_empty() && self.mean.len() != model.dfdp.len() {
             return Err(ParameterError::MismatchingMean);
+        }
+        if self.mean.is_empty() {
+            return Err(ParameterError::EmptyMean);
         }
         if self.covariance.len() != self.mean.len().pow(2) {
             return Err(ParameterError::MismatchingCovariance);
@@ -1580,9 +1619,6 @@ pub enum OefpilError {
     /// Writing the log failed.
     #[display("log error")]
     Log(#[error(source)] fmt::Error),
-    /// Invalid model.
-    #[display("invalid model")]
-    Model(#[error(source)] ModelError),
     /// Invalid variable.
     #[display("invalid variable")]
     Variable(#[error(source)] VariableError),
@@ -1598,18 +1634,6 @@ pub enum OefpilError {
     /// Algorithm error.
     #[display("algorithm error")]
     Algorithm(#[error(source)] AlgorithmError),
-}
-
-/// Model errors.
-#[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
-#[non_exhaustive]
-pub enum ModelError {
-    /// Empty variable derivative vector [`Model::dfdx`].
-    #[display("empty variable derivative vector")]
-    EmptyVariableDerivative,
-    /// Empty parameter derivative vector [`Model::dfdp`].
-    #[display("empty parameter derivative vector")]
-    EmptyParameterDerivative,
 }
 
 /// Variable errors.
@@ -1678,6 +1702,9 @@ pub enum CovarianceError {
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum ParameterError {
+    /// Empty [`Parameter::mean`] vector.
+    #[display("empty mean vector")]
+    EmptyMean,
     /// Mismatching length of [`Parameter::mean`] vector.
     #[display("mismatching length of mean vector")]
     MismatchingMean,

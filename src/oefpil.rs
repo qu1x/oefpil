@@ -87,7 +87,30 @@ fn convergence_check(
     }
 }
 
-/// Evaluates `model` at `n` samples `x` of `xi` and parameters `p`.
+/// Returns the magnitude below which a step of a central difference stops shrinking with `values`,
+/// which is one for `values` without a magnitude.
+fn step_floor(values: impl Iterator<Item = f64>) -> f64 {
+    let largest = values.fold(0f64, |largest, value| largest.max(value.abs()));
+    if largest > 0.0 { 1e-3 * largest } else { 1.0 }
+}
+
+/// Returns the central difference of fourth order of `f` in `value` with a step relative to it
+/// above `floor`.
+///
+/// Its error of about the fourth power of the fifth root of the machine epsilon is well below the
+/// default tolerance whereas the one of second order is about as large, which delays convergence.
+fn central_difference(value: f64, floor: f64, mut f: impl FnMut(f64) -> f64) -> f64 {
+    let step = libm::pow(f64::EPSILON, 0.2) * value.abs().max(floor);
+    // The difference of what is representable rather than the intended step.
+    let step = (value + step) - value;
+    let near = f(value + step) - f(value - step);
+    let far = f(value + 2.0 * step) - f(value - 2.0 * step);
+    (8.0 * near - far) / (12.0 * step)
+}
+
+/// Evaluates `model` at `n` samples `x` of `xi` and parameters `p` of `pi`.
+///
+/// Derivatives missing in `model` are approximated with the steps above `x_floor` and `p_floor`.
 fn fcn(
     model: Model,
     n: usize,
@@ -97,19 +120,42 @@ fn fcn(
     dfdx: &mut [f64],
     dfdp: &mut [f64],
     xi: &mut [f64],
+    pi: &mut [f64],
+    x_floor: &[f64],
+    p_floor: &[f64],
 ) {
-    let nv = model.dfdx.len();
-    let np = model.dfdp.len();
+    let nv = xi.len();
+    let np = p.len();
+    pi.copy_from_slice(p);
     for i in 0..n {
         for (ii, xi) in xi.iter_mut().enumerate() {
             *xi = x[ii * n + i];
         }
         fx[i] = (model.fx)(xi, p);
         for ii in 0..nv {
-            dfdx[ii * n + i] = (model.dfdx[ii])(xi, p);
+            dfdx[ii * n + i] = if model.dfdx.is_empty() {
+                let value = xi[ii];
+                let derivative = central_difference(value, x_floor[ii], |value| {
+                    xi[ii] = value;
+                    (model.fx)(xi, p)
+                });
+                xi[ii] = value;
+                derivative
+            } else {
+                (model.dfdx[ii])(xi, p)
+            };
         }
         for ii in 0..np {
-            dfdp[ii * n + i] = (model.dfdp[ii])(xi, p);
+            dfdp[ii * n + i] = if model.dfdp.is_empty() {
+                let derivative = central_difference(p[ii], p_floor[ii], |value| {
+                    pi[ii] = value;
+                    (model.fx)(xi, pi)
+                });
+                pi[ii] = p[ii];
+                derivative
+            } else {
+                (model.dfdp[ii])(xi, p)
+            };
         }
     }
 }
@@ -152,8 +198,8 @@ pub fn oefpil(
     usesigma2: bool,
     log: &mut Log,
 ) -> Outcome {
-    let nv = model.dfdx.len();
-    let nve = model.variables();
+    let nve = x.len() / n;
+    let nv = nve - usize::from(!model.implicit);
     let np = p.len();
 
     let mut lpkerrsrc = "";
@@ -209,6 +255,14 @@ pub fn oefpil(
     let mut w = vec![0f64; np];
     let mut z = vec![0f64; nve * n];
     let mut xi = vec![0f64; nv];
+    let mut pi = vec![0f64; np];
+    let x_floor = (0..nv)
+        .map(|ii| step_floor(x[ii * n..][..n].iter().copied()))
+        .collect::<Vec<f64>>();
+    let p_floor = p
+        .iter()
+        .map(|&p| step_floor(core::iter::once(p)))
+        .collect::<Vec<f64>>();
 
     // M11 is diagonal for some modes and hence has an array of its own, otherwise the factor LM
     // replaces it. It has one block per group of samples, which is a single one unless grouped.
@@ -262,7 +316,19 @@ pub fn oefpil(
             log.print(format_args!("** iteration {iter_num} begin **\n\n"));
         }
 
-        fcn(model, n, &wx, p, &mut wf, &mut b1_diags, &mut b2, &mut xi);
+        fcn(
+            model,
+            n,
+            &wx,
+            p,
+            &mut wf,
+            &mut b1_diags,
+            &mut b2,
+            &mut xi,
+            &mut pi,
+            &x_floor,
+            &p_floor,
+        );
         if let Some(error) = check_inf_nan(&wf, "function values", log)
             .or_else(|| check_inf_nan(&b1_diags[..n * nv], "function derivatives", log))
             .or_else(|| check_inf_nan(&b2, "function parameter derivatives", log))
