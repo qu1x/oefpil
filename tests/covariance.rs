@@ -10,8 +10,11 @@
 
 use oefpil::{
     Algorithm, AlgorithmError, Covariance, CovarianceError, Criterion, Distribution, Model,
-    OefpilError, Parameter, Report, Variable,
+    OefpilError, Parameter, Report, Variable, Verbosity,
 };
+use rand::Rng;
+use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
+use rand_distr::StandardNormal;
 
 const SAMPLES: usize = 12;
 
@@ -757,5 +760,159 @@ fn grouped_samples_like_full() -> Result<(), OefpilError> {
         Ok(sample)
     };
     assert_close(&draw(&grouped)?, &draw(&full)?, 1.0, 1e-13);
+    Ok(())
+}
+
+/// Draws a sample with reproducible standard normal `values`.
+fn draw(covariance: &Covariance, mean: &[f64], values: &[f64]) -> Result<Vec<f64>, OefpilError> {
+    let mut sample = vec![0f64; mean.len()];
+    let mut values = values.iter();
+    Distribution {
+        sample: &mut sample,
+        mean,
+        covariance,
+    }
+    .sample(|| *values.next().unwrap())?;
+    Ok(sample)
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn grouped_agrees_with_full_for_random_groups_and_matrices() -> Result<(), OefpilError> {
+    const TRIALS: usize = 300;
+    let problems = [
+        (EXPLICIT, &[1.0, 2.0, -1.0][..], &[0.9, 2.1, -0.9][..]),
+        (IMPLICIT, &[0.8, -0.5, 0.3][..], &[0.9, -0.4, 0.2][..]),
+        (
+            QUADRIVARIATE,
+            &[1.0, 2.0, -1.0, 0.5][..],
+            &[0.9, 2.1, -0.9, 0.6][..],
+        ),
+    ];
+    let mut random = ChaChaRng::seed_from_u64(0);
+    let mut converged = 0;
+    for trial in 0..TRIALS {
+        let (model, p, start) = problems[trial % problems.len()];
+        let variables = model.variables();
+        // A random partition of the samples into groups.
+        let mut groups = Vec::new();
+        let mut left = SAMPLES;
+        while left > 0 {
+            let group = random.random_range(1..=left.min(6));
+            groups.push(group);
+            left -= group;
+        }
+        // A random positive definite block per group, which is asymmetric among variables.
+        let mut grouped_tiles = vec![Vec::new(); variables * variables];
+        let mut full_tiles = vec![vec![0f64; SAMPLES * SAMPLES]; variables * variables];
+        let mut first = 0;
+        for &group in &groups {
+            let order = variables * group;
+            let root = (0..order * order)
+                .map(|_| random.sample(StandardNormal))
+                .collect::<Vec<f64>>();
+            for r in 0..variables {
+                for c in 0..variables {
+                    for i in 0..group {
+                        for j in 0..group {
+                            let (row, column) = (r * group + i, c * group + j);
+                            let product = (0..order)
+                                .map(|k| root[row * order + k] * root[column * order + k])
+                                .sum::<f64>();
+                            let variance = if row == column { 1e-3 } else { 0.0 };
+                            let field = 1e-4 * product + variance;
+                            grouped_tiles[r * variables + c].push(field);
+                            full_tiles[r * variables + c][(first + i) * SAMPLES + first + j] =
+                                field;
+                        }
+                    }
+                }
+            }
+            first += group;
+        }
+        let grouped = tiled(Covariance::new_grouped(&groups, variables), |r, c| {
+            grouped_tiles[r * variables + c].clone()
+        })?
+        .with_decomposition()?;
+        let full = tiled(Covariance::new_full(SAMPLES, variables), |r, c| {
+            full_tiles[r * variables + c].clone()
+        })?
+        .with_decomposition()?;
+        assert_eq!(full.to_full(), grouped.to_full(), "groups {groups:?}");
+        // Same draws from both.
+        let order = SAMPLES * variables;
+        let mean = sample(model, p);
+        let values = (0..order)
+            .map(|_| random.sample(StandardNormal))
+            .collect::<Vec<f64>>();
+        let v = draw(&grouped, &mean, &values)?;
+        assert_close(&v, &draw(&full, &mean, &values)?, 1.0, 1e-11);
+        // Same fits of which every seventh is of unknown scale.
+        let (grouped, full, unknown_scale) = if trial % 7 == 0 {
+            (
+                grouped.with_unknown_scale(),
+                full.with_unknown_scale(),
+                true,
+            )
+        } else {
+            (grouped, full, false)
+        };
+        match (
+            fit(model, &v, &grouped, start),
+            fit(model, &v, &full, start),
+        ) {
+            (Ok(fit_grouped), Ok(fit_full)) => {
+                converged += 1;
+                assert_close(&fit_grouped.p, &fit_full.p, 1.0, 1e-9);
+                assert_close(&fit_grouped.mean, &fit_full.mean, 1.0, 1e-9);
+                assert_close(
+                    &fit_grouped.p_covariance,
+                    &fit_full.p_covariance,
+                    fit_full.p_covariance[0].abs(),
+                    1e-6,
+                );
+                assert_close(
+                    &[fit_grouped.report.chi_squared],
+                    &[fit_full.report.chi_squared],
+                    fit_full.report.chi_squared,
+                    1e-6,
+                );
+                if !unknown_scale {
+                    assert_optimal(model, &v, &grouped, &fit_grouped);
+                }
+            }
+            (Err(_), Err(_)) => {}
+            _ => panic!("only one fit converged with groups {groups:?}"),
+        }
+    }
+    assert!(converged > TRIALS / 2, "converged {converged}");
+    Ok(())
+}
+
+#[test]
+fn grouped_logs_its_mode() -> Result<(), OefpilError> {
+    let p = [1.0, 2.0, -1.0];
+    let v = sample(EXPLICIT, &p);
+    let covariance = tiled(Covariance::new_grouped(&GROUPS, 3), grouped_tile)?;
+    let mut log = String::new();
+    Algorithm {
+        verbosity: Verbosity::IndividualSteps,
+        ..Algorithm::default()
+    }
+    .fit_with_log(
+        EXPLICIT,
+        &mut Variable {
+            sample: &v,
+            mean: &mut [],
+            covariance: &covariance,
+        },
+        &mut Parameter {
+            mean: &mut p.clone(),
+            covariance: &mut [0f64; 9],
+            ..Parameter::default()
+        },
+        &mut log,
+    )?;
+    assert!(log.contains("tiling mode: 5"));
     Ok(())
 }

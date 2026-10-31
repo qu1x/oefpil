@@ -46,6 +46,10 @@ The most notable features of OEFPIL are as follows:[^2]
     and the covariance matrix of the input data. However, so far problems have been encountered
     only for exaggerated estimates of the input covariance matrix.
 
+Regarding the second feature above, ignoring the correlation shifts the estimates of the examples
+[`supernovae.rs`](examples/supernovae.rs) and [`rar.rs`](examples/rar.rs) by about one standard
+deviation.
+
 [^1]: R. Šlesinger, A. C. Campbell, Z. Geršlová, V. Šindlář, and G. Wimmer, “OEFPIL: New Method
 and Software Tool for Fitting Nonlinear Functions to Correlated Data With Errors in Variables”,
 [2023 14th International Conference on Measurement, 126-129
@@ -57,7 +61,9 @@ nanoindentation curve fitting and measurement uncertainty estimation”, [Precis
 
 This crate is a pure Rust implementation of the [C/Fortran library] without any system dependency.
 It works in [`no_std`] environments with an allocator. Its results agree with the
-[C/Fortran library], which the test suite compares against via the [`oefpil-sys`] crate.
+[C/Fortran library], which the test suite compares against via the [`oefpil-sys`] crate. The
+exception is the additional covariance matrix mode `Covariance::new_grouped()`, which has no
+counterpart there and is compared against `Covariance::new_full()` instead.
 
 See the [release history](RELEASES.md) to keep track of the development.
 

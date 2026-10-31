@@ -28,6 +28,9 @@
 //!     and the covariance matrix of the input data. However, so far problems have been encountered
 //!     only for exaggerated estimates of the input covariance matrix.
 //!
+//! Regarding the second feature above, ignoring the correlation shifts the estimates of the
+//! examples [`supernovae.rs`] and [`rar.rs`] by about one standard deviation.
+//!
 //! [^1]: R. Šlesinger, A. C. Campbell, Z. Geršlová, V. Šindlář, and G. Wimmer, “OEFPIL: New Method
 //! and Software Tool for Fitting Nonlinear Functions to Correlated Data With Errors in Variables”,
 //! [2023 14th International Conference on Measurement, 126-129
@@ -43,8 +46,8 @@
 //! # Introduction
 //!
 //! This section attempts to introduce some mathematical terminology of probability and statistics
-//! (e.g., random variables and their realizations as observation samples) which are used allover in
-//! this documentation. Conventionally, to avoid confusion, upper case letters denote random
+//! (e.g., random variables and their realizations as observation samples) which are used all over
+//! in this documentation. Conventionally, to avoid confusion, upper case letters denote random
 //! variables whereas the corresponding lower case letters denote their realizations. An omitted
 //! subscript or superscript index denotes the respective vector comprising such indexed elements.
 //! If all this is unfamiliar to you, jump to the API [overview](#overview) or peek into the
@@ -144,7 +147,7 @@
 //!
 //! This crate is a pure Rust implementation of the [C/Fortran library] without any system
 //! dependency. It works in [`no_std`] environments with an allocator. The linear algebra is an
-//! implementation detail which does not surface in the API. The API comprises five structures
+//! implementation detail which does not surface in the API. The API comprises six structures
 //! *with public members* of which many can be left at their [`Default`] values:
 //!
 //!   * [`Algorithm`] for configuring the fitting algorithm (e.g., convergence [`Criterion`]).
@@ -158,9 +161,13 @@
 //!     $`\varsigma`$ and for the correlation matrix $`\C{P}{P}`$. The initial estimates $`\lambda`$
 //!     will be overwritten by the optimum estimates $`\hat\lambda`$.
 //!   * [`Report`] for reporting the number of iterations and statistical information.
+//!   * [`Distribution`] for sampling observations of a [`Covariance`] matrix (e.g., for a Monte
+//!     Carlo simulation).
 //!
 //! The results agree with the [C/Fortran library] which the test suite compares against via the
-//! [`oefpil-sys`] crate, up to rounding errors as the linear algebra differs.
+//! [`oefpil-sys`] crate, up to rounding errors as the linear algebra differs. The exception is
+//! [`Covariance::new_grouped()`] which has no counterpart there and is compared against
+//! [`Covariance::new_full()`] instead.
 //!
 //! Following feature gates are available:
 //!
@@ -168,9 +175,9 @@
 //!   * `faer` (disabled by default) -- Linear algebra on [`faer`] instead of plain Rust, which
 //!     makes fitting about three times faster if the covariance matrix is block-diagonal or full
 //!     with hundreds of samples or more, or grouped with such large groups, but takes much longer
-//!     to compile. It does not surface in
-//!     the API and yields the same results up to rounding errors. Without `std`, most of its speed
-//!     is lost as it can neither detect CPU features at runtime nor reuse thread-local workspace.
+//!     to compile. It does not surface in the API and yields the same results up to rounding
+//!     errors. Without `std`, most of its speed is lost as it can neither detect CPU features at
+//!     runtime nor reuse thread-local workspace.
 #![cfg_attr(
     not(feature = "std"),
     doc = r"
@@ -186,7 +193,7 @@
 //! # Examples
 //!
 //!   * [`sine.rs`] -- Explicit univariate biparametric sinusoidal model --
-//!     Let $`V=(\chi,A)`$ comprise an independent variable $`\chi`$ and an dependent variable $`A`$
+//!     Let $`V=(\chi,A)`$ comprise an independent variable $`\chi`$ and a dependent variable $`A`$
 //!     and let $`P=(\chi_0,A_0)`$ be the phase and amplitude parameter of the explicit model
 //!     $`A=A_0\sin(\chi+\chi_0)`$. Eight observations $`v_i\sim V_i`$ with correlation coefficients
 //!     $`\C{V^I_i}{V^I_i}=0.5`$ among variables are sampled where $`i\in[1,8]`$ and $`I\in[1,2]`$.
@@ -196,9 +203,9 @@
 //!     correlation but ignoring it claims about three times the actual precision, confirmed via
 //!     Monte Carlo simulation.
 //!   * [`compass.rs`] -- Implicit model with correlation among variables -- Calibrates the
-//!     magnetometer of a drone by fitting an ellipsoid, which has no dependent variable, to readings
-//!     of a limited tilt range. Reports the vertical axis as being less well determined, confirmed
-//!     via Monte Carlo simulation.
+//!     magnetometer of a drone by fitting an ellipsoid, which has no dependent variable, to
+//!     readings of a limited tilt range. Reports the vertical axis as being less well determined,
+//!     confirmed via Monte Carlo simulation.
 //!   * [`supernovae.rs`] -- Explicit model of real data with a full covariance matrix -- Reproduces
 //!     the published matter density of the universe from 1590 Type Ia supernovae of the Pantheon+
 //!     data release, which the first run downloads. Ignoring their correlation shifts the estimate
@@ -211,12 +218,12 @@
 //!
 //! # Troubleshooting
 //!
-//! As outlined above, this algorithm is more sensitive to the initial estimate of the paramter mean
-//! vector $`\lambda`$ and to the sample covariance matrix $`\c{V}{V}`$ than alternative algorithms
-//! which also enables it to yield a more accurate estimate of the parameter covariance matrix
-//! $`\c{P}{P}`$. Therefore, if the sample covariance matrix $`\c{V}{V}`$ is not well estimated, the
-//! algorithm might abort with an [`AlgorithmError`]. The most promising troubleshooting steps are
-//! as follows in the order mentioned:
+//! As outlined above, this algorithm is more sensitive to the initial estimate of the parameter
+//! mean vector $`\lambda`$ and to the sample covariance matrix $`\c{V}{V}`$ than alternative
+//! algorithms which also enables it to yield a more accurate estimate of the parameter covariance
+//! matrix $`\c{P}{P}`$. Therefore, if the sample covariance matrix $`\c{V}{V}`$ is not well
+//! estimated, the algorithm might abort with an [`AlgorithmError`]. The most promising
+//! troubleshooting steps are as follows in the order mentioned:
 //!
 //!   1. Ensure all inputs satisfy [`f64::is_finite()`].
 //!   2. Ensure all diagonal fields of the sample covariance matrix $`\c{V}{V}`$ are neither
@@ -790,7 +797,7 @@ pub struct Covariance {
 }
 
 impl Covariance {
-    /// Constructs a diagonal matrix (i.e, diagonal tiles on its diagonal).
+    /// Constructs a diagonal matrix (i.e., diagonal tiles on its diagonal).
     ///
     /// Allocates $`|V|`$ diagonal tiles on its diagonal with $`|v|`$ fields per tile.
     ///
@@ -844,7 +851,7 @@ impl Covariance {
             unknown_scale: false,
         }
     }
-    /// Constructs a block-diagonal matrix (i.e, diagonal and block tiles on its diagonal).
+    /// Constructs a block-diagonal matrix (i.e., diagonal and block tiles on its diagonal).
     ///
     /// Allocates $`|V|`$ block tiles on its diagonal with $`|v|^2`$ fields per tile. Although the
     /// fields of block tiles are allocated, a tile can still be encoded as diagonal tile leveraging
@@ -907,7 +914,7 @@ impl Covariance {
             unknown_scale: false,
         }
     }
-    /// Constructs a matrix of solely diagonal tiles (i.e, diagonal tiles allover).
+    /// Constructs a matrix of solely diagonal tiles (i.e., diagonal tiles all over).
     ///
     /// Allocates $`|V|^2`$ diagonal tiles with $`|v|`$ fields per tile.
     ///
@@ -961,7 +968,7 @@ impl Covariance {
             unknown_scale: false,
         }
     }
-    /// Constructs a full matrix (i.e, diagonal and block tiles allover).
+    /// Constructs a full matrix (i.e., diagonal and block tiles all over).
     ///
     /// Allocates $`|V|^2`$ block tiles with $`|v|^2`$ fields per tile. Although the fields of block
     /// tiles are allocated, a tile can still be encoded as diagonal tile leveraging mathematical
@@ -1026,8 +1033,8 @@ impl Covariance {
             unknown_scale: false,
         }
     }
-    /// Constructs a matrix of samples being correlated within `groups` only (i.e., a full matrix for
-    /// each group).
+    /// Constructs a matrix of samples being correlated within `groups` only (i.e., a full matrix
+    /// for each group).
     ///
     /// Each entry of `groups` is the number of adjacent samples of a group, which add up to the
     /// number of samples $`|v|`$. Tiles are set like the ones of [`Self::new_full()`] but a block

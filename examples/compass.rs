@@ -3,9 +3,9 @@
 //! Turning a drone traces the magnetic field of the earth on a sphere, which the magnetic parts of
 //! the drone shift by the hard iron offset and distort to an ellipsoid by the soft iron scales. A
 //! point on an ellipsoid has no dependent variable, so this implicit model treats all three axes
-//! alike. Their noise is correlated as interference of the drone affects them together. As the drone
-//! is only tilted a little during calibration, the vertical axis is less well determined, which
-//! shows in its parameter deviation. This example confirms them via Monte Carlo simulation.
+//! alike. Their noise is correlated as interference of the drone affects them together. As the
+//! drone is only tilted a little during calibration, the vertical axis is less well determined,
+//! which shows in its parameter deviation. This example confirms them via Monte Carlo simulation.
 
 #![allow(clippy::suboptimal_flops)]
 

@@ -2,9 +2,9 @@
 //!
 //! The barometric formula relates pressure to altitude via the sea level pressure, which is what a
 //! pilot sets on an altimeter. Both variables are noisy but the error of GPS drifts slowly and is
-//! hence largely shared by all samples of a flight. More samples do not average out what they share,
-//! which is why ignoring this correlation yields about the same estimate but claims a precision the
-//! flight cannot deliver. This example confirms both via Monte Carlo simulation.
+//! hence largely shared by all samples of a flight. More samples do not average out what they
+//! share, which is why ignoring this correlation yields about the same estimate but claims a
+//! precision the flight cannot deliver. This example confirms both via Monte Carlo simulation.
 
 #![allow(clippy::suboptimal_flops)]
 
