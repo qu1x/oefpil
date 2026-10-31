@@ -1,4 +1,4 @@
-# Version 0.5.0 (unreleased)
+# Version 0.5.0 (2026-10-31)
 
   * Rewrite in pure Rust without system dependencies. `oefpil-sys` is merely used to compare both
     implementations in the test suite. The results agree up to rounding errors.
