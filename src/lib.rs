@@ -231,7 +231,8 @@
 //!   2. Ensure all diagonal fields of the sample covariance matrix $`\c{V}{V}`$ are neither
 //!      negative nor zero. For a variable without errors, use a tiny positive variance.
 //!   3. Ensure to pass (co)variances and not standard deviations to [`Covariance::set_tile()`].
-//!   4. Improve the initial estimate of the parameter mean vector $`\lambda`$.
+//!   4. Improve the initial estimate of the parameter mean vector $`\lambda`$ or enable
+//!      [`Algorithm::damping`].
 //!   5. Improve the estimate of the sample covariance matrix $`\c{V}{V}`$. For a diagonal
 //!      [`Covariance::with_unknown_scale()`], use a small fraction of the sample means $`v^I_i`$ as
 //!      estimates for their standard deviations $`\sigma^I_i`$.
@@ -340,6 +341,26 @@ pub struct Algorithm {
     ///
     /// Default is `8` digits after the decimal point in [`Notation::Exponential`].
     pub format: Format,
+    /// Whether to halve steps which do not improve the fit.
+    ///
+    /// This makes the fit converge from poor initial estimates of the parameter mean vector more
+    /// often, on test problems about twice as often. A step is halved if the model is not finite
+    /// at its end or if it does not decrease the effective chi-squared
+    /// $`u^T(BUB^T)^{-1}u`$ of the constraint linearized at its end, where $`B`$ is its derivative
+    /// in the variables, $`U`$ the sample covariance matrix, and $`u`$ the value of the linearized
+    /// constraint at the samples. A step below one percent of every parameter is exempt from the
+    /// latter as the iteration converges locally anyway. If ten halvings do not help, the full step
+    /// is taken regardless, so a poor region can still be left. Each trial counts towards
+    /// [`Self::iteration_limit`].
+    ///
+    /// A fit that converges either way usually yields the same estimates up to the tolerance, but
+    /// it is no guarantee. From a poor initial estimate, either way can end in another optimum or
+    /// fail where the other does not, so check [`Report::chi_squared`].
+    ///
+    /// Default is `false`, which takes every step in full like the [C/Fortran library].
+    ///
+    /// [C/Fortran library]: https://gitlab.com/cmi6014/oefpil
+    pub damping: bool,
 }
 
 impl Default for Algorithm {
@@ -350,6 +371,7 @@ impl Default for Algorithm {
             iteration_limit: 100,
             verbosity: Verbosity::default(),
             format: Format::default(),
+            damping: false,
         }
     }
 }
@@ -431,6 +453,7 @@ impl Algorithm {
             self.tolerance,
             self.criterion,
             covariance.unknown_scale,
+            self.damping,
             &mut log,
         );
         if log.failed() {

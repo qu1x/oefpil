@@ -695,6 +695,41 @@ fn numerical_derivatives_agree_with_analytic_ones() {
 }
 
 #[test]
+fn damping_agrees_where_both_converge() {
+    let (mut both, mut gained, mut lost) = (0, 0, 0);
+    for (name, mut problem) in suite() {
+        let undamped = problem.fit_rust(&mut String::new());
+        problem.algorithm.damping = true;
+        let damped = problem.fit_rust(&mut String::new());
+        match (undamped.status.is_ok(), damped.status.is_ok()) {
+            (true, true) => {
+                both += 1;
+                assert_all_close(
+                    &damped.parameter,
+                    &undamped.parameter,
+                    1e-8,
+                    name,
+                    "parameter",
+                );
+                assert_all_close(&damped.mean, &undamped.mean, 1e-8, name, "mean");
+                assert_all_close(
+                    &damped.parameter_covariance,
+                    &undamped.parameter_covariance,
+                    1e-6,
+                    name,
+                    "parameter covariance",
+                );
+            }
+            (false, true) => gained += 1,
+            (true, false) => lost += 1,
+            (false, false) => {}
+        }
+    }
+    assert!(both > 100, "{both}");
+    assert!(lost <= gained, "lost {lost}, gained {gained}");
+}
+
+#[test]
 fn most_problems_converge() {
     // Guards against agreement in merely failing together.
     let suite = suite();

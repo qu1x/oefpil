@@ -108,6 +108,116 @@ pub fn central_difference(value: f64, floor: f64, mut f: impl FnMut(f64) -> f64)
     (8.0 * near - far) / (12.0 * step)
 }
 
+/// Step halving of the estimates via the effective chi-squared of the linearized constraint.
+///
+/// This is what the iteration minimizes with respect to the parameters given the samples.
+/// Chi-squared itself is no measure of progress as a step can rightfully raise it to satisfy the
+/// constraint.
+struct Damper {
+    /// Estimates and full step of the last accepted iteration.
+    p: Vec<f64>,
+    x: Vec<f64>,
+    pdiff: Vec<f64>,
+    xdiff: Vec<f64>,
+    /// Effective chi-squared of these estimates, not finite until there are some.
+    merit: f64,
+    /// Fraction of the full step being tried.
+    fraction: f64,
+    /// Whether the full step is small, which needs no judgement as the iteration converges locally.
+    small: bool,
+}
+
+impl Damper {
+    /// Smallest fraction of a step.
+    const FLOOR: f64 = 1e-3;
+    /// Relative rise of the effective chi-squared attributed to rounding errors.
+    const SLACK: f64 = 1e-10;
+    /// Largest step of a parameter relative to its estimate considered small.
+    const SMALL: f64 = 1e-2;
+
+    fn new(np: usize, nx: usize) -> Self {
+        Self {
+            p: vec![0f64; np],
+            x: vec![0f64; nx],
+            pdiff: vec![0f64; np],
+            xdiff: vec![0f64; nx],
+            merit: f64::NAN,
+            fraction: 1.0,
+            small: false,
+        }
+    }
+
+    /// Whether the estimates reached by the last step are no improvement given their `merit`.
+    fn rejects(&self, merit: f64) -> bool {
+        self.merit.is_finite()
+            && (merit.is_nan() || (!self.small && merit > self.merit * (1.0 + Self::SLACK)))
+    }
+
+    /// Halves the last step returning whether there is still a fraction of it to try.
+    ///
+    /// If no fraction is an improvement, the full step is taken without any further judgement. The
+    /// iteration then may leave what would otherwise trap it, as it does without damping.
+    fn retreat(&mut self, p: &mut [f64], x: &mut [f64]) -> bool {
+        if !self.merit.is_finite() {
+            return false;
+        }
+        if self.fraction < Self::FLOOR {
+            self.fraction = 1.0;
+            self.merit = f64::NAN;
+        } else {
+            self.fraction *= 0.5;
+        }
+        for (i, p) in p.iter_mut().enumerate() {
+            *p = self.p[i] + self.fraction * self.pdiff[i];
+        }
+        for (i, x) in x.iter_mut().enumerate() {
+            *x = self.x[i] + self.fraction * self.xdiff[i];
+        }
+        true
+    }
+
+    /// Remembers the estimates, their `merit`, and the full step about to be taken from them.
+    fn accept(&mut self, x: &[f64], pdiff: &[f64], xdiff: &[f64], merit: f64) {
+        self.x.copy_from_slice(x);
+        self.pdiff.copy_from_slice(pdiff);
+        self.xdiff.copy_from_slice(xdiff);
+        self.merit = merit;
+        self.fraction = 1.0;
+        self.small = self
+            .p
+            .iter()
+            .zip(pdiff)
+            .all(|(p, pdiff)| pdiff.abs() <= Self::SMALL * p.abs());
+    }
+}
+
+/// Halves the last step if `damping`, which counts as iteration, returning whether to try it.
+fn step_back(
+    damping: bool,
+    damper: &mut Damper,
+    p: &mut [f64],
+    x: &mut [f64],
+    iter_num: &mut usize,
+    maxit: usize,
+    status: &mut Status,
+    log: &mut Log,
+) -> bool {
+    if !(damping && damper.retreat(p, x)) {
+        return false;
+    }
+    *iter_num += 1;
+    if *iter_num >= maxit {
+        *status = Status::MaxIterReached;
+    }
+    if log.at(Verbosity::ParameterMean) {
+        let fraction = c_float(damper.fraction, Notation::Exponential, 6, false, 0);
+        log.print(format_args!(
+            "damping: trying fraction {fraction} of step\n"
+        ));
+    }
+    true
+}
+
 /// Evaluates `model` at `n` samples `x` of `xi` and parameters `p` of `pi`.
 ///
 /// Derivatives missing in `model` are approximated with the steps above `x_floor` and `p_floor`.
@@ -196,6 +306,7 @@ pub fn oefpil(
     tol: f64,
     conv_crit: Criterion,
     usesigma2: bool,
+    damping: bool,
     log: &mut Log,
 ) -> Outcome {
     let nve = x.len() / n;
@@ -305,6 +416,8 @@ pub fn oefpil(
     let mut chi2 = f64::NAN;
     let mut chi2prev = 0f64;
     let mut iter_num = 0;
+    let mut damper = Damper::new(np, n * nve);
+    let mut merit = f64::NAN;
 
     if log.at(Verbosity::ParameterMean) {
         log.matrix(1, np, p, Some("* initial parameter estimates *\n"));
@@ -333,6 +446,18 @@ pub fn oefpil(
             .or_else(|| check_inf_nan(&b1_diags[..n * nv], "function derivatives", log))
             .or_else(|| check_inf_nan(&b2, "function parameter derivatives", log))
         {
+            if step_back(
+                damping,
+                &mut damper,
+                p,
+                &mut wx,
+                &mut iter_num,
+                maxit,
+                &mut status,
+                log,
+            ) {
+                continue;
+            }
             status = error;
             break;
         }
@@ -450,6 +575,18 @@ pub fn oefpil(
                 }
             }
             if lpkinfo != 0 {
+                if step_back(
+                    damping,
+                    &mut damper,
+                    p,
+                    &mut wx,
+                    &mut iter_num,
+                    maxit,
+                    &mut status,
+                    log,
+                ) {
+                    continue;
+                }
                 status = Status::ErrorLapack;
                 lpkerrsrc = "DPOTRF(M11)";
                 break;
@@ -507,6 +644,24 @@ pub fn oefpil(
                     &mut u[start..],
                     1,
                 );
+            }
+        }
+
+        if damping {
+            merit = ddot(n, &u, 1, &u, 1);
+            if damper.rejects(merit)
+                && step_back(
+                    damping,
+                    &mut damper,
+                    p,
+                    &mut wx,
+                    &mut iter_num,
+                    maxit,
+                    &mut status,
+                    log,
+                )
+            {
+                continue;
             }
         }
 
@@ -593,6 +748,7 @@ pub fn oefpil(
         }
 
         // Update p.
+        damper.p.copy_from_slice(p);
         for i in 0..np {
             p[i] += w[i];
         }
@@ -618,6 +774,10 @@ pub fn oefpil(
             Mode::Grouped => {
                 dgetmv_grouped(groups, n, nve, -1.0, k, tilemap, &z, 1.0, &mut deltax_hat);
             }
+        }
+
+        if damping {
+            damper.accept(&wx, &w, &deltax_hat, merit);
         }
 
         for i in 0..n * nve {
