@@ -198,6 +198,10 @@
 //!     magnetometer of a drone by fitting an ellipsoid, which has no dependent variable, to readings
 //!     of a limited tilt range. Reports the vertical axis as being less well determined, confirmed
 //!     via Monte Carlo simulation.
+//!   * [`supernovae.rs`] -- Explicit model of real data with a full covariance matrix -- Reproduces
+//!     the published matter density of the universe from 1590 Type Ia supernovae of the Pantheon+
+//!     data release, which the first run downloads. Ignoring their correlation shifts the estimate
+//!     and claims too much precision.
 //!
 //! # Troubleshooting
 //!
@@ -221,6 +225,7 @@
 //! [`sine.rs`]: ../src/sine/sine.rs.html
 //! [`altimeter.rs`]: ../src/altimeter/altimeter.rs.html
 //! [`compass.rs`]: ../src/compass/compass.rs.html
+//! [`supernovae.rs`]: ../src/supernovae/supernovae.rs.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
