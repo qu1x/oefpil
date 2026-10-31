@@ -136,7 +136,10 @@ fn main() {
         .compile("oefpil");
     #[cfg(feature = "bindgen")]
     {
-        use bindgen::{Builder, callbacks::ParseCallbacks};
+        use bindgen::{
+            Builder,
+            callbacks::{ItemInfo, ParseCallbacks},
+        };
         use std::{env::var, path::PathBuf};
         #[derive(Debug)]
         struct RenameItem<'a> {
@@ -144,8 +147,8 @@ fn main() {
             new: &'a str,
         }
         impl ParseCallbacks for RenameItem<'_> {
-            fn item_name(&self, old: &str) -> Option<String> {
-                (self.old == old).then(|| self.new.into())
+            fn item_name(&self, item: ItemInfo<'_>) -> Option<String> {
+                (self.old == item.name).then(|| self.new.into())
             }
         }
         let out_path = PathBuf::from(var("OUT_DIR").unwrap());
